@@ -90,8 +90,6 @@ class SceneGraph(nn.Module):
     def forward(self, input, objects, objects_length):
         object_features = input
         
-        print(self.object_supervision)
-        print(self.concatenative_pair_representation)
 
         if self.object_supervision and self.concatenative_pair_representation:
             context_features = self.context_feature_extract(input)
