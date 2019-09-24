@@ -74,8 +74,8 @@ class SceneGraph(nn.Module):
         else:
             self.num_objects_upperbound = 10
             self.object_features_layer = nn.Sequential(nn.Linear(256*16*24,self.num_objects_upperbound*output_dims[1]),nn.ReLU(True))
-            self.subj_linear = nn.Linear(output_dims[1],output_dims[1])
-            self.obj_linear = nn.Linear(output_dims[1],output_dims[1])
+            self.obj1_linear = nn.Linear(output_dims[1],output_dims[1])
+            self.obj2_linear = nn.Linear(output_dims[1],output_dims[1])
             self.reset_parameters()
 
     def reset_parameters(self):
@@ -89,10 +89,12 @@ class SceneGraph(nn.Module):
 
     def forward(self, input, objects, objects_length):
         object_features = input
-        context_features = self.context_feature_extract(input)
+        
+        print(self.object_supervision)
+        print(self.concatenative_pair_representation)
 
         if self.object_supervision and self.concatenative_pair_representation:
-
+            context_features = self.context_feature_extract(input)
             outputs = list()
             objects_index = 0
             for i in range(input.size(0)):
@@ -210,16 +212,17 @@ class SceneGraph(nn.Module):
                     ])
 
         elif not self.object_supervision and self.concatenative_pair_representation:
+            print('hello')
             outputs = list()
 
             all_scenes_object_features = object_features.view(-1, 256*16*24)
             for i in range(input.size(0)):
-                single_scene_object_features = torch.squeeze(all_scene_object_features[i,:],dim=0)
+                single_scene_object_features = torch.squeeze(all_scenes_object_features[i,:],dim=0)
                 object_features_trans = self.object_features_layer(single_scene_object_features)
                 object_features_trans = object_features_trans.view(self.num_objects_upperbound,256)
 
                 num_objects = objects_length[i].item()
-                object_representations = self._norm(object_features_trans[:,0:num_objects,])
+                object_representations = self._norm(object_features_trans[0:num_objects,:])
 
                 object_pair_representations = self.objects_to_pair_representations(object_representations)
 
