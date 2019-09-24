@@ -210,7 +210,6 @@ class SceneGraph(nn.Module):
                     ])
 
         elif not self.object_supervision and self.concatenative_pair_representation:
-            print('hello')
             outputs = list()
 
             all_scenes_object_features = object_features.view(-1, 256*16*24)
