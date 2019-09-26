@@ -73,7 +73,9 @@ class SceneGraph(nn.Module):
 
         else:
             self.num_objects_upperbound = 10
-            self.object_features_layer = nn.Sequential(nn.Linear(256*16*24,self.num_objects_upperbound*output_dims[1]),nn.ReLU(True))
+            self.object_coord_fuse = nn.Sequential(nn.Conv2d(feature_dim+2,feature_dim,kernel_size=4),nn.ReLU(True))
+            self.query = torch.randn(self.num_objects_upperbound, feature_dim, requires_grad=True).cuda()
+            self.object_features_layer = nn.Sequential(nn.Linear(feature_dim,output_dims[1]),nn.ReLU(True))
             self.obj1_linear = nn.Linear(output_dims[1],output_dims[1])
             self.obj2_linear = nn.Linear(output_dims[1],output_dims[1])
             self.reset_parameters()
@@ -211,15 +213,24 @@ class SceneGraph(nn.Module):
 
         elif not self.object_supervision and self.concatenative_pair_representation:
             outputs = list()
+            #object_features has shape batch_size x 256 x 16 x 24
+            obj_coord_map = coord_map((object_features.size(2),object_features.size(3)),self.query.device)
 
-            all_scenes_object_features = object_features.view(-1, 256*16*24)
+            
             for i in range(input.size(0)):
-                single_scene_object_features = torch.squeeze(all_scenes_object_features[i,:],dim=0)
-                object_features_trans = self.object_features_layer(single_scene_object_features)
-                object_features_trans = object_features_trans.view(self.num_objects_upperbound,256)
+                single_scene_object_features =  torch.squeeze(object_features[i,:],dim=0) #dim=256 x 16 x 24
+                scene_object_coords = torch.unsqueeze(torch.cat((single_scene_object_features,obj_coord_map),dim=0),dim=0)
+
+                fused_object_coords = torch.squeeze(self.object_coord_fuse(scene_object_coords),dim=0) #dim=256 x Z x Y
+
 
                 num_objects = objects_length[i].item()
-                object_representations = self._norm(object_features_trans[0:num_objects,:])
+                relevant_queries = self.query[0:num_objects,:] #num_objects x feature_dim
+
+                attention_map = torch.einsum("ij,jkl -> ikl", relevant_queries,fused_object_coords) #dim=num_objects x Z x Y
+                object_values = torch.einsum("ijk,ljk -> il", attention_map, fused_object_coords) #dim=num_objects x 256
+
+                object_representations = self._norm(self.object_features_layer(object_values))
 
                 object_pair_representations = self.objects_to_pair_representations(object_representations)
 
@@ -252,4 +263,16 @@ class SceneGraph(nn.Module):
 
     def _norm(self, x):
         return x / x.norm(2, dim=-1, keepdim=True)
+
+def coord_map(shape,device, start=-1, end=1):
+    """
+    Gives, a 2d shape tuple, returns two mxn coordinate maps,
+    Ranging min-max in the x and y directions, respectively.
+    """
+    m, n = shape
+    x_coord_row = torch.linspace(start, end, steps=n).to(device)
+    y_coord_row = torch.linspace(start, end, steps=m).to(device)
+    x_coords = x_coord_row.unsqueeze(0).expand(torch.Size((m, n))).unsqueeze(0)
+    y_coords = y_coord_row.unsqueeze(1).expand(torch.Size((m, n))).unsqueeze(0)
+    return torch.cat([x_coords, y_coords], 0)
 
