@@ -74,7 +74,7 @@ class SceneGraph(nn.Module):
         else:
             self.num_objects_upperbound = 10
             self.object_coord_fuse = nn.Sequential(nn.Conv2d(feature_dim+2,feature_dim,kernel_size=4),nn.ReLU(True))
-            self.query = torch.randn(self.num_objects_upperbound, feature_dim, requires_grad=True).cuda()
+            self.query = nn.Parameter(torch.randn(self.num_objects_upperbound, feature_dim))
             self.object_features_layer = nn.Sequential(nn.Linear(feature_dim,output_dims[1]),nn.ReLU(True))
             self.obj1_linear = nn.Linear(output_dims[1],output_dims[1])
             self.obj2_linear = nn.Linear(output_dims[1],output_dims[1])
@@ -215,7 +215,6 @@ class SceneGraph(nn.Module):
             outputs = list()
             #object_features has shape batch_size x 256 x 16 x 24
             obj_coord_map = coord_map((object_features.size(2),object_features.size(3)),self.query.device)
-
             
             for i in range(input.size(0)):
                 single_scene_object_features =  torch.squeeze(object_features[i,:],dim=0) #dim=256 x 16 x 24
