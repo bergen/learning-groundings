@@ -227,6 +227,7 @@ class SceneGraph(nn.Module):
                 relevant_queries = self.query[0:num_objects,:] #num_objects x feature_dim
 
                 attention_map = torch.einsum("ij,jkl -> ikl", relevant_queries,fused_object_coords) #dim=num_objects x Z x Y
+                attention_map = nn.softmax(1)(attention_map.view(num_objects,-1)).view_as(attention_map)
                 object_values = torch.einsum("ijk,ljk -> il", attention_map, fused_object_coords) #dim=num_objects x 256
 
                 object_representations = self._norm(self.object_features_layer(object_values))
