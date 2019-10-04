@@ -72,7 +72,7 @@ class SceneGraph(nn.Module):
                 self.relation_feature_fuse = jacnn.Identity()
 
         else:
-            self.num_objects_upperbound = 10
+            self.num_objects_upperbound = 11
             self.object_coord_fuse = nn.Sequential(nn.Conv2d(feature_dim+2,feature_dim,kernel_size=1),nn.ReLU(True))
             self.query = nn.Parameter(torch.randn(self.num_objects_upperbound, feature_dim))
             self.object_features_layer = nn.Sequential(nn.Linear(feature_dim,output_dims[1]),nn.ReLU(True))
