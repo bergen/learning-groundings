@@ -264,6 +264,26 @@ class SceneGraph(nn.Module):
     def _norm(self, x):
         return x / x.norm(2, dim=-1, keepdim=True)
 
+
+    def compute_attention(self,input,objects,objects_length):
+        object_features = torch.squeeze(input,dim=0)
+        obj_coord_map = coord_map((object_features.size(1),object_features.size(2)),self.query.device)
+
+        scene_object_coords = torch.unsqueeze(torch.cat((object_features,obj_coord_map),dim=0),dim=0)
+
+        fused_object_coords = torch.squeeze(self.object_coord_fuse(scene_object_coords),dim=0) #dim=256 x Z x Y
+
+
+        num_objects = objects_length[0]
+        relevant_queries = self.query[0:num_objects,:] #num_objects x feature_dim
+
+        attention_map = torch.einsum("ij,jkl -> ikl", relevant_queries,fused_object_coords) #dim=num_objects x Z x Y
+        attention_map = nn.Softmax(1)(attention_map.view(num_objects,-1)).view_as(attention_map)
+
+        return attention_map
+
+
+
 def coord_map(shape,device, start=-1, end=1):
     """
     Gives, a 2d shape tuple, returns two mxn coordinate maps,
