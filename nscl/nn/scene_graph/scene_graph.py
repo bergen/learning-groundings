@@ -73,6 +73,7 @@ class SceneGraph(nn.Module):
 
         else:
             self.num_objects_upperbound = 11
+            self.temperature = 6
             self.object_coord_fuse = nn.Sequential(nn.Conv2d(feature_dim+2,feature_dim,kernel_size=1),nn.ReLU(True))
             self.query = nn.Parameter(torch.randn(self.num_objects_upperbound, feature_dim))
             self.object_features_layer = nn.Sequential(nn.Linear(feature_dim,output_dims[1]),nn.ReLU(True))
@@ -226,7 +227,7 @@ class SceneGraph(nn.Module):
                 num_objects = objects_length[i].item()
                 relevant_queries = self.query[0:num_objects,:] #num_objects x feature_dim
 
-                attention_map = torch.einsum("ij,jkl -> ikl", relevant_queries,fused_object_coords) #dim=num_objects x Z x Y
+                attention_map = self.temperature * torch.einsum("ij,jkl -> ikl", relevant_queries,fused_object_coords) #dim=num_objects x Z x Y
                 attention_map = nn.Softmax(1)(attention_map.view(num_objects,-1)).view_as(attention_map)
                 object_values = torch.einsum("ijk,ljk -> il", attention_map, fused_object_coords) #dim=num_objects x 256
 
@@ -277,7 +278,7 @@ class SceneGraph(nn.Module):
         num_objects = objects_length[0]
         relevant_queries = self.query[0:num_objects,:] #num_objects x feature_dim
 
-        attention_map = torch.einsum("ij,jkl -> ikl", relevant_queries,fused_object_coords) #dim=num_objects x Z x Y
+        attention_map = self.temperature*torch.einsum("ij,jkl -> ikl", relevant_queries,fused_object_coords) #dim=num_objects x Z x Y
         attention_map = nn.Softmax(1)(attention_map.view(num_objects,-1)).view_as(attention_map)
 
         return attention_map
