@@ -131,7 +131,7 @@ def main():
             ('-curriculum_' + args.curriculum) +
             ('-qtrans_' + args.question_transform if args.question_transform is not None else '') +
             ('-' + args.expr if args.expr is not None else '') +
-            ('-lr_' + args.lr)
+            ('-lr_' + str(args.lr))
         )
     ))
 
