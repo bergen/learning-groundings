@@ -130,7 +130,8 @@ def main():
             args.training_target +
             ('-curriculum_' + args.curriculum) +
             ('-qtrans_' + args.question_transform if args.question_transform is not None else '') +
-            ('-' + args.expr if args.expr is not None else '')
+            ('-' + args.expr if args.expr is not None else '') +
+            ('-lr_' + args.lr)
         )
     ))
 
@@ -169,7 +170,12 @@ def main():
     if args.extra_data_dir is not None:
         extra_dataset = build_dataset(args, configs, args.extra_data_image_root, args.extra_data_scenes_json, args.extra_data_questions_json)
 
+
     main_train(train_dataset, validation_dataset, extra_dataset)
+
+
+
+
 
 
 def main_train(train_dataset, validation_dataset, extra_dataset=None):
@@ -209,6 +215,8 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
     elif args.load:
         if trainer.load_weights(args.load):
             logger.critical('Loaded weights from pretrained model: "{}".'.format(args.load))
+
+
 
     if args.use_tb and not args.debug:
         from jactorch.train.tb import TBLogger, TBGroupMeters
