@@ -41,7 +41,7 @@ parser.add_argument('--configs', default='', type='kv', metavar='CFGS')
 parser.add_argument('--expr', default=None, metavar='DIR', help='experiment name')
 parser.add_argument('--training-target', required=True, choices=['derender', 'parser', 'all'])
 parser.add_argument('--training-visual-modules', default='all', choices=['none', 'object', 'relation', 'all'])
-parser.add_argument('--curriculum', default='all', choices=['off', 'scene', 'program', 'all'])
+parser.add_argument('--curriculum', default='all', choices=['off', 'scene', 'program', 'all','restricted'])
 parser.add_argument('--question-transform', default='off', choices=['off', 'basic', 'parserv1-groundtruth', 'parserv1-candidates', 'parserv1-candidates-executed'])
 parser.add_argument('--concept-quantization-json', default=None, metavar='FILE')
 
@@ -243,6 +243,40 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
     if args.embed:
         from IPython import embed; embed()
 
+
+
+    # assert args.curriculum == 'off', 'Unimplemented feature: curriculum mode {}.'.format(args.curriculum)
+    if args.curriculum=='restricted':
+        curriculum_strategy = [
+            (0, 3, 4),
+            (10, 3, 6),
+            (1e9, None, None)
+        ]
+        validation_restriction = (3,6)
+    else:
+        curriculum_strategy = [
+            (0, 3, 4),
+            (5, 3, 6),
+            (10, 3, 8),
+            (15, 4, 8),
+            (25, 4, 12),
+            (35, 5, 12),
+            (45, 6, 12),
+            (55, 7, 16),
+            (65, 8, 20),
+            (75, 9, 22),
+            (90, 10, 25),
+            (1e9, None, None)
+        ]
+
+    # trainer.register_event('backward:after', backward_check_nan)
+
+    if args.curriculum == 'restricted':
+            max_validation_scene_size, max_validation_program_size = validation_restriction
+            validation_dataset = validation_dataset.filter_scene_size(max_validation_scene_size)
+            validation_dataset = validation_dataset.filter_program_size_raw(max_validation_program_size)
+
+
     logger.critical('Building the data loader.')
     validation_dataloader = validation_dataset.make_dataloader(args.batch_size, shuffle=False, drop_last=False, nr_workers=args.data_workers)
     if extra_dataset is not None:
@@ -257,23 +291,7 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
         logger.critical(meters.format_simple('Validation', {k: v for k, v in meters.avg.items() if v != 0}, compressed=False))
         return meters
 
-    # assert args.curriculum == 'off', 'Unimplemented feature: curriculum mode {}.'.format(args.curriculum)
-    curriculum_strategy = [
-        (0, 3, 4),
-        (5, 3, 6),
-        (10, 3, 8),
-        (15, 4, 8),
-        (25, 4, 12),
-        (35, 5, 12),
-        (45, 6, 12),
-        (55, 7, 16),
-        (65, 8, 20),
-        (75, 9, 22),
-        (90, 10, 25),
-        (1e9, None, None)
-    ]
 
-    # trainer.register_event('backward:after', backward_check_nan)
 
     for epoch in range(args.start_epoch + 1, args.epochs + 1):
         meters.reset()
@@ -285,9 +303,9 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
             for si, s in enumerate(curriculum_strategy):
                 if curriculum_strategy[si][0] < epoch <= curriculum_strategy[si + 1][0]:
                     max_scene_size, max_program_size = s[1:]
-                    if args.curriculum in ('scene', 'all'):
+                    if args.curriculum in ('scene', 'all','restricted'):
                         this_train_dataset = this_train_dataset.filter_scene_size(max_scene_size)
-                    if args.curriculum in ('program', 'all'):
+                    if args.curriculum in ('program', 'all','restricted'):
                         this_train_dataset = this_train_dataset.filter_program_size_raw(max_program_size)
                     logger.critical('Building the data loader. Curriculum = {}/{}, length = {}.'.format(*s[1:], len(this_train_dataset)))
                     break
