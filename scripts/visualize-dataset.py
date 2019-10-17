@@ -89,7 +89,7 @@ def get_data():
 
     dataset = build_dataset(args, configs, args.data_image_root, args.data_scenes_json, args.data_questions_json)
 
-    dataset_size = 100
+    dataset_size = 1000
     dataset = dataset.trim_length(dataset_size)
 
     dataloader = dataset.make_dataloader(batch_size=1, shuffle=False, drop_last=False, nr_workers=1)
@@ -102,7 +102,66 @@ def get_attention(model,feed_dict):
     attention = model.scene_graph.compute_attention(scene_representation,feed_dict['objects'].cuda(), feed_dict['objects_length'])
     return attention
 
-def visualize_attention():
+def model_forward(model,feed_dict):
+    feed_dict['image'] = feed_dict['image'].cuda()
+    loss, monitors, outputs = model(feed_dict)
+
+    return outputs
+
+def visualize_sum_attentions():
+    train_iter, dataset_size = get_data()
+
+    model = make_model()
+    
+    images = []
+
+    feed_dict = next(train_iter)
+
+    qa = []
+
+    for i in range(dataset_size):
+        prev_image_name = feed_dict['image_filename'][0]
+        try:
+            feed_dict = next(train_iter)
+        except:
+            break
+        new_image_name = feed_dict['image_filename'][0]
+        if prev_image_name == new_image_name:
+            continue
+        attention = get_attention(model, feed_dict) 
+        outputs = model_forward(model, feed_dict)
+
+        qa.append((feed_dict['question_raw'],outputs['answer'][0],feed_dict['answer']))
+        image = feed_dict['image']
+        print(feed_dict['image_filename'])
+
+
+        image_filename = osp.join(args.data_image_root, new_image_name)
+        pil_image = Image.open(image_filename)
+        torch_image = transforms.ToTensor()(pil_image)
+        
+        #scene_pil_image = transforms.ToPILImage()(torch.squeeze(image,dim=0))
+        for j in range(feed_dict['objects_length']):
+            object_attention = torch.unsqueeze(torch.unsqueeze(attention[j,:].cpu(),dim=0),dim=0)
+            upsampled_attention = torch.squeeze(nn.functional.interpolate(object_attention,size=(320,480)))
+            
+            if j==0:
+                total_attention = upsampled_attention
+            else:
+                total_attention +=upsampled_attention
+
+            #image_filtered = torch_image*upsampled_attention
+
+        mask=torch.zeros(total_attention.size())
+        image_filtered = torch.where(total_attention>0.1,mask,torch_image)
+        #attention_image = transforms.ToPILImage()(upsampled_attention)
+        #pil_image.paste(attention_image,(0,0))
+        object_image = transforms.ToPILImage()(image_filtered)
+        images.append((pil_image,object_image))
+
+    save_images(images,qa)
+
+def visualize_attention_per_object():
     train_iter, dataset_size = get_data()
 
     model = make_model()
@@ -120,21 +179,24 @@ def visualize_attention():
         if prev_image_name == new_image_name:
             continue
         attention = get_attention(model, feed_dict) 
+        #model_forward(model, feed_dict)
         image = feed_dict['image']
         print(feed_dict['image_filename'])
 
         image_filename = osp.join(args.data_image_root, new_image_name)
         pil_image = Image.open(image_filename)
         torch_image = transforms.ToTensor()(pil_image)
-        print(torch_image.size())
+        
         #scene_pil_image = transforms.ToPILImage()(torch.squeeze(image,dim=0))
         for j in range(feed_dict['objects_length']):
             object_attention = torch.unsqueeze(torch.unsqueeze(attention[j,:].cpu(),dim=0),dim=0)
             upsampled_attention = torch.squeeze(nn.functional.interpolate(object_attention,size=(320,480)))
-            image_filtered = torch_image*upsampled_attention
+            mask=torch.zeros(upsampled_attention.size())
 
-            mask=torch.zeros(image_filtered.size())
-            image_filtered = torch.where(image_filtered>0.1,mask,torch_image)
+            #image_filtered = torch_image*upsampled_attention
+
+            
+            image_filtered = torch.where(upsampled_attention>0.1,mask,torch_image)
             #attention_image = transforms.ToPILImage()(upsampled_attention)
             #pil_image.paste(attention_image,(0,0))
             object_image = transforms.ToPILImage()(image_filtered)
@@ -142,27 +204,55 @@ def visualize_attention():
 
     save_images(images)
 
-def save_images(images):
+def save_images(images,qa=None):
     #images is a list of pairs of images
     vis = HTMLTableVisualizer(args.data_vis_dir, 'Dataset: ' + args.dataset.upper())
     vis.begin_html()
 
     indices = len(images)
 
-    with vis.table('Visualize', [
-        HTMLTableColumnDesc('scene', 'QA', 'figure', {'width': '50%'},None),
-        HTMLTableColumnDesc('object', 'QA', 'figure', {'width': '50%'},None),
-    ]):
-        for i in tqdm(indices):
-            scene_image = images[i][0]
-            object_image = images[i][1]
+    if qa is None:
+        with vis.table('Visualize', [
+            HTMLTableColumnDesc('scene', 'QA', 'figure', {'width': '50%'},None),
+            HTMLTableColumnDesc('object', 'QA', 'figure', {'width': '50%'},None),
+        ]):
+            for i in tqdm(indices):
+                scene_image = images[i][0]
+                object_image = images[i][1]
 
-            scene_fig, ax = vis_bboxes(scene_image, [], 'object', add_text=False)
-            object_fig, ax = vis_bboxes(object_image, [], 'object', add_text=False)
+                scene_fig, ax = vis_bboxes(scene_image, [], 'object', add_text=False)
+                object_fig, ax = vis_bboxes(object_image, [], 'object', add_text=False)
 
-            vis.row(scene=scene_fig, object=object_fig)
-            plt.close()
-    vis.end_html()
+                vis.row(scene=scene_fig, object=object_fig)
+                plt.close()
+        vis.end_html()
+
+    else:
+        with vis.table('Visualize', [
+            HTMLTableColumnDesc('scene', 'QA', 'figure', {'width': '50%'},None),
+            HTMLTableColumnDesc('object', 'QA', 'figure', {'width': '50%'},None),
+            HTMLTableColumnDesc('qa', 'QA', 'text', css=None,td_css={'width': '30%'}),
+        ]):
+            for i in tqdm(indices):
+                    scene_image = images[i][0]
+                    object_image = images[i][1]
+                    current_qa = qa[i]
+                    q,guessed_answer,true_answer= current_qa
+
+                    scene_fig, ax = vis_bboxes(scene_image, [], 'object', add_text=False)
+                    object_fig, ax = vis_bboxes(object_image, [], 'object', add_text=False)
+
+                    QA_string = """
+                        <p><b>Q</b>: {}</p>
+                        <p><b>Guessed answer</b>: {}</p>
+                        <p><b>True answer</b>: {}</p>
+                    """.format(q, guessed_answer, true_answer)
+
+                    vis.row(scene=scene_fig, object=object_fig,qa=QA_string)
+                    plt.close()
+        vis.end_html()
+
+
 
 def main():
     initialize_dataset(args.dataset)
@@ -217,5 +307,5 @@ def main():
 
 
 if __name__ == '__main__':
-    visualize_attention()
+    visualize_sum_attentions()
 
