@@ -65,7 +65,7 @@ class SceneGraph(nn.Module):
        
         outputs = list()
         #object_features has shape batch_size x 256 x 16 x 24
-        obj_coord_map = coord_map((object_features.size(2),object_features.size(3)),self.query.device)
+        obj_coord_map = coord_map((object_features.size(2),object_features.size(3)),object_features.device)
         
         for i in range(input.size(0)):
             single_scene_object_features =  torch.squeeze(object_features[i,:],dim=0) #dim=256 x 16 x 24
@@ -76,9 +76,10 @@ class SceneGraph(nn.Module):
 
             num_objects = objects_length[i].item()
 
-            rnn_input = fused_object_coords.view(-1,:self.feature_dim*16*24).expand(num_objects,-1)
+            rnn_input = fused_object_coords.view(-1,self.feature_dim*16*24).expand(num_objects,-1)
             rnn_input = torch.unsqueeze(rnn_input,dim=0)
-            queries,_ = torch.squeeze(self.attention_rnn(rnn_input),dim=0)
+            queries,_ = self.attention_rnn(rnn_input)
+            queries = torch.squeeze(queries,dim=0)
 
 
             attention_map = torch.einsum("ij,jkl -> ikl", queries,fused_object_coords) #dim=num_objects x Z x Y
