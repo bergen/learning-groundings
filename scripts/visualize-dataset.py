@@ -32,6 +32,8 @@ from torch import nn
 import torch
 from torchvision import transforms
 
+import csv
+
 logger = get_logger(__file__)
 
 
@@ -44,6 +46,10 @@ parser.add_argument('--data-vocab-json', type='checked_file')
 parser.add_argument('-n', '--nr-vis', type=int, help='number of visualized questions')
 parser.add_argument('--random', type='bool', default=False, help='random choose the questions')
 parser.add_argument('--load', type='checked_file', default=None, metavar='FILE', help='load the weights from a pretrained model (default: none)')
+
+parser.add_argument('--extra-data-dir', type='checked_dir', metavar='DIR', help='extra data directory for validation')
+parser.add_argument('--extra-data-scenes-json', type='checked_file', nargs='+', default=None, metavar='FILE', help='extra scene json file for validation')
+parser.add_argument('--extra-data-questions-json', type='checked_file', nargs='+', default=None, metavar='FILE', help='extra question json file for validation')
 
 parser.add_argument('--visualize-attention', type='bool', default=False)
 parser.add_argument('--desc', type='checked_file', metavar='FILE')
@@ -63,9 +69,31 @@ if args.data_vocab_json is None:
 vocab = Vocab.from_json(args.data_vocab_json)
 
 
+#this is information for the validation set
+if args.extra_data_dir is not None:
+    args.extra_data_image_root = osp.join(args.extra_data_dir, 'images')
+    if args.extra_data_scenes_json is None:
+        args.extra_data_scenes_json = osp.join(args.extra_data_dir, 'scenes.json')
+    if args.extra_data_questions_json is None:
+        args.extra_data_questions_json = osp.join(args.extra_data_dir, 'questions.json')
+
+
 desc = load_source(args.desc)
 configs = desc.configs
 args.configs.apply(configs)
+
+def write_to_csv(r,file_name):
+    with open(file_name,'w') as myfile:
+        wr = csv.writer(myfile)
+        wr.writerow(['filename','question','accurate'])
+        for row in r:
+            wr.writerow(row)
+
+def load_csv(file_name):
+    with open(file_name,'r') as f:
+        r = csv.reader(f)
+        rows = [s for s in r]
+    return rows
 
 def make_model():
     model = desc.make_model(args, vocab)
@@ -81,18 +109,22 @@ def make_model():
 
     _ = trainer.load_checkpoint(args.resume)
 
-    return trainer._model
+    model = trainer.model
+    model.eval()
 
-def get_data():
+    return model
+
+def get_data(batch_size=1, dataset_size=500):
     initialize_dataset(args.dataset)
     build_dataset = get_dataset_builder(args.dataset)
 
-    dataset = build_dataset(args, configs, args.data_image_root, args.data_scenes_json, args.data_questions_json)
+    #use validation set
+    dataset = build_dataset(args, configs, args.extra_data_image_root, args.extra_data_scenes_json, args.extra_data_questions_json)
 
-    dataset_size = 1000
-    dataset = dataset.trim_length(dataset_size)
+    if dataset_size is not None:
+        dataset = dataset.trim_length(dataset_size)
 
-    dataloader = dataset.make_dataloader(batch_size=1, shuffle=False, drop_last=False, nr_workers=1)
+    dataloader = dataset.make_dataloader(batch_size=batch_size, shuffle=False, drop_last=False, nr_workers=1)
     train_iter = iter(dataloader)
     return train_iter, dataset_size
 
@@ -104,36 +136,108 @@ def get_attention(model,feed_dict):
 
 def model_forward(model,feed_dict):
     feed_dict['image'] = feed_dict['image'].cuda()
-    loss, monitors, outputs = model(feed_dict)
+    outputs = model(feed_dict)
+
 
     return outputs
 
-def visualize_sum_attentions():
-    train_iter, dataset_size = get_data()
+def check_if_relational(feed_dict):
+    program_seq = feed_dict['program_seq'][0]
+    ops = [d['op'] for d in program_seq]
+    return 'relate' in ops
+
+def normalize_answer(a):
+    if a in [True,False]:
+        a = int(a)
+    return a
+
+def get_validation_results(filename):
+    validation_iter, _ = get_data(batch_size=64,dataset_size=None)
 
     model = make_model()
     
-    images = []
+    all_filenames = []
+    all_questions = []
+    all_accuracies = []
 
-    feed_dict = next(train_iter)
+    for i in range(len(validation_iter)):
+        d = {}
 
-    qa = []
+        feed_dict = next(validation_iter)
+        
+
+        outputs = model_forward(model, feed_dict)
+
+
+        filenames = feed_dict['image_filename']
+        questions = feed_dict['question_raw']
+        correct_answers = feed_dict['answer']
+        correct_answers = list(map(normalize_answer,correct_answers))
+        answers = outputs['answer']
+
+        accuracies = [answers[i]==correct_answers[i] for i in range(len(answers))]
+
+        all_filenames += filenames
+        all_questions += questions
+        all_accuracies += accuracies
+
+    results = zip(all_filenames,all_questions,all_accuracies)
+    
+    write_to_csv(results, filename)
+
+def get_wrong_ids():
+    wrong_ids = load_csv('/home/lbergen/NeuralDRS/NSCL-PyTorch-Release/data_vis_dir/simplest_wrong.csv')
+    return [int(r[0]) for r in wrong_ids]
+
+def visualize_sum_attentions(filter_for_ids=False):
+    train_iter, dataset_size = get_data(dataset_size=17926)
+
+    if filter_for_ids:
+        ids = get_wrong_ids()
+
+
+    model = make_model()
+    
+    processed = []
+
+    
 
     for i in range(dataset_size):
-        prev_image_name = feed_dict['image_filename'][0]
         try:
             feed_dict = next(train_iter)
         except:
             break
+
+        if filter_for_ids:
+            if i not in ids:
+                continue
+
+        d = {}
+
+        #prev_image_name = feed_dict['image_filename'][0]
+        
         new_image_name = feed_dict['image_filename'][0]
-        if prev_image_name == new_image_name:
-            continue
+        print(i)
+        print(new_image_name)
+        
+        #if prev_image_name == new_image_name:
+        #    continue
+
         attention = get_attention(model, feed_dict) 
         outputs = model_forward(model, feed_dict)
 
-        qa.append((feed_dict['question_raw'],outputs['answer'][0],feed_dict['answer']))
+        d['question'] = feed_dict['question_raw']
+        d['guessed_answer'] = outputs['answer'][0]
+        d['correct_answer'] = feed_dict['answer'][0]
+        d['correct_answer'] = normalize_answer(d['correct_answer'])
+        
+
+        d['correct'] = (d['correct_answer']==d['guessed_answer'])
+        
+        d['relational'] = check_if_relational(feed_dict)
+
+
         image = feed_dict['image']
-        print(feed_dict['image_filename'])
 
 
         image_filename = osp.join(args.data_image_root, new_image_name)
@@ -157,9 +261,13 @@ def visualize_sum_attentions():
         #attention_image = transforms.ToPILImage()(upsampled_attention)
         #pil_image.paste(attention_image,(0,0))
         object_image = transforms.ToPILImage()(image_filtered)
-        images.append((pil_image,object_image))
 
-    save_images(images,qa)
+        d['original_image'] = pil_image
+        d['attention_image'] = object_image
+        processed.append(d)
+
+    #processed.sort(key=lambda x: (x['correct'],not x['relational']))
+    save_images(processed)
 
 def visualize_attention_per_object():
     train_iter, dataset_size = get_data()
@@ -204,53 +312,65 @@ def visualize_attention_per_object():
 
     save_images(images)
 
-def save_images(images,qa=None):
+def save_images(processed):
     #images is a list of pairs of images
     vis = HTMLTableVisualizer(args.data_vis_dir, 'Dataset: ' + args.dataset.upper())
     vis.begin_html()
 
-    indices = len(images)
+    indices = len(processed)
 
-    if qa is None:
-        with vis.table('Visualize', [
-            HTMLTableColumnDesc('scene', 'QA', 'figure', {'width': '50%'},None),
-            HTMLTableColumnDesc('object', 'QA', 'figure', {'width': '50%'},None),
-        ]):
-            for i in tqdm(indices):
-                scene_image = images[i][0]
-                object_image = images[i][1]
+    # if qa is None:
+    #     with vis.table('Visualize', [
+    #         HTMLTableColumnDesc('scene', 'Scene', 'figure', {'width': '50%'},None),
+    #         HTMLTableColumnDesc('object', 'Attention', 'figure', {'width': '50%'},None),
+    #     ]):
+    #         for i in tqdm(indices):
+    #             scene_image = images[i][0]
+    #             object_image = images[i][1]
+
+    #             scene_fig, ax = vis_bboxes(scene_image, [], 'object', add_text=False)
+    #             object_fig, ax = vis_bboxes(object_image, [], 'object', add_text=False)
+
+    #             vis.row(scene=scene_fig, object=object_fig)
+    #             plt.close()
+    #     vis.end_html()
+
+    # else:
+    with vis.table('Visualize', [
+        HTMLTableColumnDesc('scene', 'Scene', 'figure', {'width': '80%'},None),
+        HTMLTableColumnDesc('object', 'Attention', 'figure', {'width': '80%'},None),
+        HTMLTableColumnDesc('accurate', 'Accuracy', 'text', css=None,td_css={'width': '30%'}),
+        HTMLTableColumnDesc('qa', 'QA', 'text', css=None,td_css={'width': '30%'}),
+    ]):
+        for i in tqdm(indices):
+                d = processed[i]
+                scene_image = d['original_image']
+                object_image = d['attention_image']
+                question = d['question']
+                guessed_answer = d['guessed_answer']
+                true_answer = d['correct_answer']
+                model_correct = d['correct']
+                relational = d['relational']
 
                 scene_fig, ax = vis_bboxes(scene_image, [], 'object', add_text=False)
                 object_fig, ax = vis_bboxes(object_image, [], 'object', add_text=False)
 
-                vis.row(scene=scene_fig, object=object_fig)
+
+                accurate_string = """
+                    <p><b>Model is correct</b>: {}</p>
+                    <p><b>Question is relational</b>: {}</p>
+                """.format(model_correct, relational)
+
+
+                QA_string = """
+                    <p><b>Q</b>: {}</p>
+                    <p><b>Guessed answer</b>: {}</p>
+                    <p><b>True answer</b>: {}</p>
+                """.format(question, guessed_answer, true_answer)
+
+                vis.row(scene=scene_fig, object=object_fig,accurate=accurate_string, qa=QA_string)
                 plt.close()
-        vis.end_html()
-
-    else:
-        with vis.table('Visualize', [
-            HTMLTableColumnDesc('scene', 'QA', 'figure', {'width': '50%'},None),
-            HTMLTableColumnDesc('object', 'QA', 'figure', {'width': '50%'},None),
-            HTMLTableColumnDesc('qa', 'QA', 'text', css=None,td_css={'width': '30%'}),
-        ]):
-            for i in tqdm(indices):
-                    scene_image = images[i][0]
-                    object_image = images[i][1]
-                    current_qa = qa[i]
-                    q,guessed_answer,true_answer= current_qa
-
-                    scene_fig, ax = vis_bboxes(scene_image, [], 'object', add_text=False)
-                    object_fig, ax = vis_bboxes(object_image, [], 'object', add_text=False)
-
-                    QA_string = """
-                        <p><b>Q</b>: {}</p>
-                        <p><b>Guessed answer</b>: {}</p>
-                        <p><b>True answer</b>: {}</p>
-                    """.format(q, guessed_answer, true_answer)
-
-                    vis.row(scene=scene_fig, object=object_fig,qa=QA_string)
-                    plt.close()
-        vis.end_html()
+    vis.end_html()
 
 
 
@@ -307,5 +427,6 @@ def main():
 
 
 if __name__ == '__main__':
-    visualize_sum_attentions()
+    visualize_sum_attentions(filter_for_ids=True)
+    #get_validation_results('validation_results.csv')
 
