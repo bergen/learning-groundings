@@ -86,6 +86,11 @@ parser.add_argument('--use-tb', type='bool', default=False, metavar='B', help='u
 parser.add_argument('--embed', action='store_true', help='entering embed after initialization')
 parser.add_argument('--force-gpu', action='store_true', help='force the script to use GPUs, useful when there exists on-the-ground devices')
 
+
+#scene graph
+parser.add_argument('--attention-type', default='cnn', choices=['cnn', 'naive-rnn'])
+
+
 args = parser.parse_args()
 
 if args.data_vocab_json is None:

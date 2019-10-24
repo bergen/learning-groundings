@@ -29,8 +29,8 @@ configs.train.qa_add_supervision = True
 
 
 class Model(ReasoningV1Model):
-    def __init__(self, vocab):
-        super().__init__(vocab, configs)
+    def __init__(self, args, vocab):
+        super().__init__(args, vocab, configs)
 
     def forward(self, feed_dict):
         feed_dict = GView(feed_dict)
@@ -64,4 +64,4 @@ class Model(ReasoningV1Model):
 
 
 def make_model(args, vocab):
-    return Model(vocab)
+    return Model(args, vocab)

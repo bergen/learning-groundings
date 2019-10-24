@@ -23,7 +23,7 @@ from . import functional
 
 DEBUG = bool(int(os.getenv('DEBUG_SCENE_GRAPH', 0)))
 
-__all__ = ['SceneGraph']
+__all__ = ['SceneGraph','NaiveRNNSceneGraph','AttentionCNNSceneGraph']
 
 
 class SceneGraph(nn.Module):
@@ -38,8 +38,6 @@ class SceneGraph(nn.Module):
         self.concatenative_pair_representation = concatenative_pair_representation
 
 
-
-        self.attention_rnn = nn.LSTM(feature_dim*16*24, feature_dim,batch_first=True)
 
         self.object_coord_fuse = nn.Sequential(nn.Conv2d(feature_dim+2,feature_dim,kernel_size=1),nn.ReLU(True))
         
@@ -76,10 +74,8 @@ class SceneGraph(nn.Module):
 
             num_objects = objects_length[i].item()
 
-            rnn_input = fused_object_coords.view(-1,self.feature_dim*16*24).expand(num_objects,-1)
-            rnn_input = torch.unsqueeze(rnn_input,dim=0)
-            queries,_ = self.attention_rnn(rnn_input)
-            queries = torch.squeeze(queries,dim=0)
+            queries = get_queries(fused_object_coords,num_objects)
+
 
 
             attention_map = torch.einsum("ij,jkl -> ikl", queries,fused_object_coords) #dim=num_objects x Z x Y
@@ -117,6 +113,9 @@ class SceneGraph(nn.Module):
 
         return object_pair_representations
 
+    def get_queries(self,fused_object_coords,num_objects):
+        pass
+
     def _norm(self, x):
         return x / x.norm(2, dim=-1, keepdim=True)
 
@@ -139,6 +138,80 @@ class SceneGraph(nn.Module):
         return attention_map
 
 
+class NaiveRNNSceneGraph(SceneGraph):
+    def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True):
+        super().__init__(feature_dim, output_dims, downsample_rate)
+
+        self.attention_rnn = nn.LSTM(feature_dim*16*24, feature_dim,batch_first=True)
+
+
+    def get_queries(self,fused_object_coords,num_objects):
+        rnn_input = fused_object_coords.view(-1,self.feature_dim*16*24).expand(num_objects,-1)
+        rnn_input = torch.unsqueeze(rnn_input,dim=0)
+        queries,_ = self.attention_rnn(rnn_input)
+        queries = torch.squeeze(queries,dim=0)
+        return queries
+
+class AttentionCNNSceneGraph(SceneGraph):
+    def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True):
+        super().__init__(feature_dim, output_dims, downsample_rate)
+
+        self.attention_cnn = nn.Sequential(nn.Conv2d(self.feature_dim+1,self.feature_dim,kernel_size=1),nn.ReLU())
+        self.attention_fc = nn.Sequential(nn.Linear(self.feature_dim*16*24,self.feature_dim), nn.ReLU())
+
+
+    def forward(self, input, objects, objects_length):
+        object_features = input
+        
+        device = object_features.device
+
+        outputs = list()
+        #object_features has shape batch_size x 256 x 16 x 24
+        obj_coord_map = coord_map((object_features.size(2),object_features.size(3)),device)
+        
+        for i in range(input.size(0)):
+            single_scene_object_features =  torch.squeeze(object_features[i,:],dim=0) #dim=256 x 16 x 24
+            scene_object_coords = torch.unsqueeze(torch.cat((single_scene_object_features,obj_coord_map),dim=0),dim=0)
+
+            fused_object_coords = torch.squeeze(self.object_coord_fuse(scene_object_coords),dim=0) #dim=256 x Z x Y
+
+
+            num_objects = objects_length[i].item()
+
+
+            attention_map_list = []
+            sum_attention = torch.zeros(fused_object_coords.size(1),fused_object_coords.size(2)).to(device)
+            for j in range(num_objects):
+                h = self.attention_cnn(torch.unsqueeze(torch.cat((1/(j+1)*torch.unsqueeze(sum_attention,dim=0),fused_object_coords),dim=0), dim=0))
+                query = torch.squeeze(self.attention_fc(h.view(1,-1)),dim=0)
+            
+
+                obj_attention_weights = torch.einsum("i,ijk -> jk",query,fused_object_coords)
+                obj_attention = nn.Softmax(1)(obj_attention_weights.view(1,-1)).view_as(obj_attention_weights)
+                attention_map_list.append(obj_attention)
+                sum_attention = sum_attention + obj_attention
+
+            attention_map = torch.stack(attention_map_list)
+
+
+            #attention_map = torch.einsum("ij,jkl -> ikl", queries,fused_object_coords) #dim=num_objects x Z x Y
+            #attention_map = nn.Softmax(1)(attention_map.view(num_objects,-1)).view_as(attention_map)
+            object_values = torch.einsum("ijk,ljk -> il", attention_map, fused_object_coords) #dim=num_objects x 256
+
+            object_representations = self._norm(self.object_features_layer(object_values))
+
+            object_pair_representations = self.objects_to_pair_representations(object_representations)
+
+            outputs.append([
+                        None,
+                        object_representations,
+                        object_pair_representations
+                    ])
+
+        return outputs
+
+
+        
 
 def coord_map(shape,device, start=-1, end=1):
     """

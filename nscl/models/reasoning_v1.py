@@ -53,8 +53,9 @@ def make_reasoning_v1_configs():
 
 
 class ReasoningV1Model(nn.Module):
-    def __init__(self, vocab, configs):
+    def __init__(self, args, vocab, configs):
         super().__init__()
+        self.args = args
         self.vocab = vocab
 
         import jactorch.models.vision.resnet as resnet
@@ -63,7 +64,8 @@ class ReasoningV1Model(nn.Module):
 
         import nscl.nn.scene_graph.scene_graph as sng
         # number of channels = 256; downsample rate = 16.
-        self.scene_graph = sng.SceneGraph(256, configs.model.sg_dims, 16)
+        attention_dispatch = {'cnn':sng.AttentionCNNSceneGraph,'naive-rnn':sng.NaiveRNNSceneGraph}
+        self.scene_graph = attention_dispatch[args.attention_type](256, configs.model.sg_dims, 16)
 
         import nscl.nn.reasoning_v1.quasi_symbolic as qs
         self.reasoning = qs.DifferentiableReasoning(
