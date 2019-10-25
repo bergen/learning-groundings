@@ -255,9 +255,12 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
         curriculum_strategy = [
             (0, 3, 4),
             (10, 3, 6),
+            (20, 3, 8),
+            (30, 4, 8),
+            (30, 4, 12),
             (1e9, None, None)
         ]
-        validation_restriction = (3,6)
+        validation_restriction = (4,12)
     else:
         curriculum_strategy = [
             (0, 3, 4),

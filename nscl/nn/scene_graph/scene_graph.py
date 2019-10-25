@@ -180,16 +180,16 @@ class AttentionCNNSceneGraph(SceneGraph):
 
 
             attention_map_list = []
-            sum_attention = torch.zeros(fused_object_coords.size(1),fused_object_coords.size(2)).to(device)
+            max_attention = torch.zeros(fused_object_coords.size(1),fused_object_coords.size(2)).to(device)
             for j in range(num_objects):
-                h = self.attention_cnn(torch.unsqueeze(torch.cat((1/(j+1)*torch.unsqueeze(sum_attention,dim=0),fused_object_coords),dim=0), dim=0))
+                h = self.attention_cnn(torch.unsqueeze(torch.cat((torch.unsqueeze(max_attention,dim=0),fused_object_coords),dim=0), dim=0))
                 query = torch.squeeze(self.attention_fc(h.view(1,-1)),dim=0)
             
 
                 obj_attention_weights = torch.einsum("i,ijk -> jk",query,fused_object_coords)
                 obj_attention = nn.Softmax(1)(obj_attention_weights.view(1,-1)).view_as(obj_attention_weights)
                 attention_map_list.append(obj_attention)
-                sum_attention = sum_attention + obj_attention
+                max_attention = torch.max(obj_attention,max_attention)
 
             attention_map = torch.stack(attention_map_list)
 
