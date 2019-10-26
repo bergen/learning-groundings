@@ -74,7 +74,7 @@ class SceneGraph(nn.Module):
 
             num_objects = objects_length[i].item()
 
-            queries = get_queries(fused_object_coords,num_objects)
+            queries = self.get_queries(fused_object_coords,num_objects)
 
 
 
