@@ -38,6 +38,8 @@ class Model(ReasoningV1Model):
 
         f_scene = self.resnet(feed_dict.image)
         f_sng = self.scene_graph(f_scene, feed_dict.objects, feed_dict.objects_length)
+        
+        
 
         programs = feed_dict.program_qsseq
         programs, buffers, answers = self.reasoning(f_sng, programs, fd=feed_dict)

@@ -327,9 +327,9 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
             for si, s in enumerate(curriculum_strategy):
                 if curriculum_strategy[si][0] < epoch <= curriculum_strategy[si + 1][0]:
                     max_scene_size, max_program_size = s[1:]
-                    if args.curriculum in ('scene', 'all','restricted'):
+                    if args.curriculum in ('scene', 'all','restricted','accelerated'):
                         this_train_dataset = this_train_dataset.filter_scene_size(max_scene_size)
-                    if args.curriculum in ('program', 'all','restricted'):
+                    if args.curriculum in ('program', 'all','restricted','accelerated'):
                         this_train_dataset = this_train_dataset.filter_program_size_raw(max_program_size)
                     logger.critical('Building the data loader. Curriculum = {}/{}, length = {}.'.format(*s[1:], len(this_train_dataset)))
                     break
