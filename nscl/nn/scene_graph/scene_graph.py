@@ -86,6 +86,7 @@ class SceneGraph(nn.Module):
 
             object_pair_representations = self.objects_to_pair_representations(object_representations)
 
+
             outputs.append([
                         None,
                         object_representations,
@@ -179,7 +180,7 @@ class NaiveRNNSceneGraphBatched(SceneGraph):
         queries = self.get_queries_batched(fused_object_coords_batched, batch_size, max_num_objects)
 
         attention_map_batched = torch.einsum("bij,bjkl -> bikl", queries,fused_object_coords_batched)
-        attention_map_batched = nn.Softmax(2)(attention_map_batched.view(batch_size,max_num_objects,-1)).view_as(attention_map_batched)
+        attention_map_batched = nn.Softmax(2)(attention_map_batched.reshape(batch_size,max_num_objects,-1)).view_as(attention_map_batched)
         object_values_batched = torch.einsum("bijk,bljk -> bil", attention_map_batched, fused_object_coords_batched) 
         object_representations_batched = self._norm(self.object_features_layer(object_values_batched))
 
@@ -189,8 +190,9 @@ class NaiveRNNSceneGraphBatched(SceneGraph):
         outputs = []
         for i in range(batch_size):
             num_objects = objects_length[i].item()
-            object_representations = object_representations_batched[i,0:num_objects,:]
-            object_pair_representations = object_pair_representations_batched[i,0:num_objects,0:num_objects,:]
+            object_representations = torch.squeeze(object_representations_batched[i,0:num_objects,:],dim=0).contiguous()
+            object_pair_representations = torch.squeeze(object_pair_representations_batched[i,0:num_objects,0:num_objects,:],dim=0).contiguous()
+            
             outputs.append([
                         None,
                         object_representations,
@@ -217,11 +219,12 @@ class NaiveRNNSceneGraphBatched(SceneGraph):
         obj2_representations = obj2_representations.repeat(1,num_objects,1,1)
 
         object_pair_representations = obj1_representations+obj2_representations
+        object_pair_representations = object_pair_representations
 
         return object_pair_representations
 
     def get_queries_batched(self,fused_object_coords,batch_size,max_num_objects):
-        rnn_input = fused_object_coords.view(batch_size,-1,self.feature_dim*16*24).expand(-1,max_num_objects,-1)
+        rnn_input = fused_object_coords.reshape(batch_size,-1,self.feature_dim*16*24).expand(-1,max_num_objects,-1)
         queries,_ = self.attention_rnn(rnn_input)
         return queries
 
