@@ -88,7 +88,7 @@ parser.add_argument('--force-gpu', action='store_true', help='force the script t
 
 
 #scene graph
-parser.add_argument('--attention-type', default='cnn', choices=['cnn', 'naive-rnn'])
+parser.add_argument('--attention-type', default='cnn', choices=['cnn', 'naive-rnn', 'naive-rnn-batched'])
 
 
 args = parser.parse_args()
@@ -136,7 +136,8 @@ def main():
             ('-curriculum_' + args.curriculum) +
             ('-qtrans_' + args.question_transform if args.question_transform is not None else '') +
             ('-' + args.expr if args.expr is not None else '') +
-            ('-lr_' + str(args.lr))
+            ('-lr_' + str(args.lr)) + 
+            ('-attention_' + str(args.attention_type))
         )
     ))
 
