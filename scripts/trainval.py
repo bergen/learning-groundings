@@ -41,7 +41,7 @@ parser.add_argument('--configs', default='', type='kv', metavar='CFGS')
 parser.add_argument('--expr', default=None, metavar='DIR', help='experiment name')
 parser.add_argument('--training-target', required=True, choices=['derender', 'parser', 'all'])
 parser.add_argument('--training-visual-modules', default='all', choices=['none', 'object', 'relation', 'all'])
-parser.add_argument('--curriculum', default='all', choices=['off', 'scene', 'program', 'all','restricted'])
+parser.add_argument('--curriculum', default='all', choices=['off', 'scene', 'program', 'all','restricted','accelerated'])
 parser.add_argument('--question-transform', default='off', choices=['off', 'basic', 'parserv1-groundtruth', 'parserv1-candidates', 'parserv1-candidates-executed'])
 parser.add_argument('--concept-quantization-json', default=None, metavar='FILE')
 
@@ -262,6 +262,21 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
             (1e9, None, None)
         ]
         validation_restriction = (4,12)
+    elif args.curriculum=='accelerated':
+        curriculum_strategy = [
+            (0, 3, 4),
+            (5, 3, 6),
+            (10, 3, 8),
+            (15, 4, 8),
+            (20, 4, 12),
+            (25, 5, 12),
+            (30, 6, 12),
+            (35, 7, 16),
+            (40, 8, 20),
+            (45, 9, 22),
+            (50, 10, 25),
+            (1e9, None, None)
+        ]
     else:
         curriculum_strategy = [
             (0, 3, 4),

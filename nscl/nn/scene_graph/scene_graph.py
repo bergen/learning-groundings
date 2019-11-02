@@ -179,7 +179,7 @@ class NaiveRNNSceneGraphBatched(SceneGraph):
         queries = self.get_queries_batched(fused_object_coords_batched, batch_size, max_num_objects)
 
         attention_map_batched = torch.einsum("bij,bjkl -> bikl", queries,fused_object_coords_batched)
-        attention_map_batched = nn.Softmax(2)(attention_map.view(batch_size,max_num_objects,-1)).view_as(attention_map_batched)
+        attention_map_batched = nn.Softmax(2)(attention_map_batched.view(batch_size,max_num_objects,-1)).view_as(attention_map_batched)
         object_values_batched = torch.einsum("bijk,bljk -> bil", attention_map_batched, fused_object_coords_batched) 
         object_representations_batched = self._norm(self.object_features_layer(object_values_batched))
 
