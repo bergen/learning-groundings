@@ -66,7 +66,8 @@ class ReasoningV1Model(nn.Module):
         # number of channels = 256; downsample rate = 16.
         attention_dispatch = {'cnn':sng.AttentionCNNSceneGraph,
                             'naive-rnn':sng.NaiveRNNSceneGraph,
-                            'naive-rnn-batched':sng.NaiveRNNSceneGraphBatched}
+                            'naive-rnn-batched':sng.NaiveRNNSceneGraphBatched,
+                            'naive-rnn-global-batched':sng.NaiveRNNSceneGraphGlobalBatched}
         self.scene_graph = attention_dispatch[args.attention_type](256, configs.model.sg_dims, 16)
 
         import nscl.nn.reasoning_v1.quasi_symbolic as qs

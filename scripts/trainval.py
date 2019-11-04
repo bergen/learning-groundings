@@ -88,7 +88,7 @@ parser.add_argument('--force-gpu', action='store_true', help='force the script t
 
 
 #scene graph
-parser.add_argument('--attention-type', default='cnn', choices=['cnn', 'naive-rnn', 'naive-rnn-batched'])
+parser.add_argument('--attention-type', default='cnn', choices=['cnn', 'naive-rnn', 'naive-rnn-batched','naive-rnn-global-batched'])
 
 
 args = parser.parse_args()

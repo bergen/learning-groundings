@@ -154,11 +154,39 @@ class NaiveRNNSceneGraph(SceneGraph):
         queries = torch.squeeze(queries,dim=0)
         return queries
 
-class NaiveRNNSceneGraphBatched(SceneGraph):
+class NaiveRNNSceneGraphBatchedBase(NaiveRNNSceneGraph):
     def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True):
         super().__init__(feature_dim, output_dims, downsample_rate)
 
-        self.attention_rnn = nn.LSTM(feature_dim*16*24, feature_dim,batch_first=True)
+
+    def objects_to_pair_representations(self, object_representations_batched):
+        num_objects = object_representations_batched.size(1)
+
+        obj1_representations = self.obj1_linear(object_representations_batched)
+        obj2_representations = self.obj2_linear(object_representations_batched)
+
+        obj1_representations.unsqueeze_(-1)#now batch_size x num_objects x feature_dim x 1
+        obj2_representations.unsqueeze_(-1)
+
+        obj1_representations = obj1_representations.transpose(2,3)
+        obj2_representations = obj2_representations.transpose(2,3).transpose(1,2)
+
+        obj1_representations = obj1_representations.repeat(1,1,num_objects,1)  
+        obj2_representations = obj2_representations.repeat(1,num_objects,1,1)
+
+        object_pair_representations = obj1_representations+obj2_representations
+        object_pair_representations = object_pair_representations
+
+        return object_pair_representations
+
+    def get_queries(self,fused_object_coords,batch_size,max_num_objects):
+        rnn_input = fused_object_coords.reshape(batch_size,-1,self.feature_dim*16*24).expand(-1,max_num_objects,-1)
+        queries,_ = self.attention_rnn(rnn_input)
+        return queries
+
+class NaiveRNNSceneGraphBatched(NaiveRNNSceneGraphBatchedBase):
+    def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True):
+        super().__init__(feature_dim, output_dims, downsample_rate)
 
     def forward(self, input, objects, objects_length):
         object_features = input
@@ -177,21 +205,21 @@ class NaiveRNNSceneGraphBatched(SceneGraph):
 
         fused_object_coords_batched = self.object_coord_fuse(scene_object_coords_batched)
 
-        queries = self.get_queries_batched(fused_object_coords_batched, batch_size, max_num_objects)
+        queries = self.get_queries(fused_object_coords_batched, batch_size, max_num_objects)
 
         attention_map_batched = torch.einsum("bij,bjkl -> bikl", queries,fused_object_coords_batched)
         attention_map_batched = nn.Softmax(2)(attention_map_batched.reshape(batch_size,max_num_objects,-1)).view_as(attention_map_batched)
         object_values_batched = torch.einsum("bijk,bljk -> bil", attention_map_batched, fused_object_coords_batched) 
         object_representations_batched = self._norm(self.object_features_layer(object_values_batched))
 
-        object_pair_representations_batched = self.objects_to_pair_representations_batched(object_representations_batched)
+        object_pair_representations_batched = self.objects_to_pair_representations(object_representations_batched)
 
 
         outputs = []
         for i in range(batch_size):
             num_objects = objects_length[i].item()
-            object_representations = torch.squeeze(object_representations_batched[i,0:num_objects,:],dim=0).contiguous()
-            object_pair_representations = torch.squeeze(object_pair_representations_batched[i,0:num_objects,0:num_objects,:],dim=0).contiguous()
+            object_representations = torch.squeeze(object_representations_batched[i,0:num_objects,:],dim=0)
+            object_pair_representations = torch.squeeze(object_pair_representations_batched[i,0:num_objects,0:num_objects,:],dim=0)
             
             outputs.append([
                         None,
@@ -203,30 +231,61 @@ class NaiveRNNSceneGraphBatched(SceneGraph):
         return outputs
 
 
-    def objects_to_pair_representations_batched(self, object_representations_batched):
-        num_objects = object_representations_batched.size(1)
+class NaiveRNNSceneGraphGlobalBatched(NaiveRNNSceneGraphBatchedBase):
+    def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True):
+        super().__init__(feature_dim, output_dims, downsample_rate)
 
-        obj1_representations = self.obj1_linear(object_representations_batched)
-        obj2_representations = self.obj2_linear(object_representations_batched)
+        self.object_global_fuse = nn.Sequential(nn.Conv2d(2*self.feature_dim,self.feature_dim,kernel_size=1),nn.ReLU(True))
 
-        obj1_representations.unsqueeze_(-1)#now batch_size x num_objects x feature_dim x 1
-        obj2_representations.unsqueeze_(-1)
+        self.object_fc = nn.Sequential(nn.Linear(self.feature_dim*16*24,self.output_dims[1]),nn.ReLU(True))
+        
 
-        obj1_representations = obj1_representations.transpose(2,3)
-        obj2_representations = obj2_representations.transpose(2,3).transpose(1,2)
+    def forward(self, input, objects, objects_length):
+        object_features = input
+        
 
-        obj1_representations = obj1_representations.repeat(1,1,num_objects,1)
-        obj2_representations = obj2_representations.repeat(1,num_objects,1,1)
+        batch_size = input.size(0)
+        max_num_objects = max(objects_length)
+       
+        outputs = list()
+        #object_features has shape batch_size x 256 x 16 x 24
+        obj_coord_map = torch.unsqueeze(coord_map((object_features.size(2),object_features.size(3)),object_features.device),dim=0)
 
-        object_pair_representations = obj1_representations+obj2_representations
-        object_pair_representations = object_pair_representations
+        obj_coord_map_batched = obj_coord_map.repeat(batch_size,1,1,1)
 
-        return object_pair_representations
+        scene_object_coords_batched = torch.cat((object_features,obj_coord_map_batched), dim=1)
 
-    def get_queries_batched(self,fused_object_coords,batch_size,max_num_objects):
-        rnn_input = fused_object_coords.reshape(batch_size,-1,self.feature_dim*16*24).expand(-1,max_num_objects,-1)
-        queries,_ = self.attention_rnn(rnn_input)
-        return queries
+        fused_object_coords_batched = self.object_coord_fuse(scene_object_coords_batched)
+
+        queries = self.get_queries(fused_object_coords_batched, batch_size, max_num_objects)
+
+        attention_map_batched = torch.einsum("bij,bjkl -> bikl", queries,fused_object_coords_batched)
+        attention_map_batched = nn.Softmax(2)(attention_map_batched.reshape(batch_size,max_num_objects,-1)).view_as(attention_map_batched)
+        object_values_batched = torch.einsum("bijk,bljk -> biljk", attention_map_batched, fused_object_coords_batched) 
+
+        global_context = fused_object_coords_batched.unsqueeze(1).repeat(1,max_num_objects,1,1,1)
+        object_global_fused = self.object_global_fuse(torch.cat((object_values_batched,global_context),dim=2).view(batch_size*max_num_objects,self.feature_dim,16,24)).view_as(object_values_batched)
+
+        object_representations_batched = self._norm(self.object_fc(object_global_fused.view(batch_size,max_num_objects,self.feature_dim*16*24)))
+
+
+        object_pair_representations_batched = self.objects_to_pair_representations(object_representations_batched)
+
+
+        outputs = []
+        for i in range(batch_size):
+            num_objects = objects_length[i].item()
+            object_representations = torch.squeeze(object_representations_batched[i,0:num_objects,:],dim=0)
+            object_pair_representations = torch.squeeze(object_pair_representations_batched[i,0:num_objects,0:num_objects,:],dim=0)
+            
+            outputs.append([
+                        None,
+                        object_representations,
+                        object_pair_representations
+                    ])
+
+
+        return outputs
 
 class AttentionCNNSceneGraph(SceneGraph):
     def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True):
