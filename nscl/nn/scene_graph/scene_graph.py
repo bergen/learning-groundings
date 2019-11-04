@@ -219,7 +219,7 @@ class NaiveRNNSceneGraphBatched(NaiveRNNSceneGraphBatchedBase):
         for i in range(batch_size):
             num_objects = objects_length[i].item()
             object_representations = torch.squeeze(object_representations_batched[i,0:num_objects,:],dim=0)
-            object_pair_representations = torch.squeeze(object_pair_representations_batched[i,0:num_objects,0:num_objects,:],dim=0)
+            object_pair_representations = torch.squeeze(object_pair_representations_batched[i,0:num_objects,0:num_objects,:],dim=0).contiguous()
             
             outputs.append([
                         None,
@@ -277,7 +277,7 @@ class NaiveRNNSceneGraphGlobalBatched(NaiveRNNSceneGraphBatchedBase):
         for i in range(batch_size):
             num_objects = objects_length[i].item()
             object_representations = torch.squeeze(object_representations_batched[i,0:num_objects,:],dim=0)
-            object_pair_representations = torch.squeeze(object_pair_representations_batched[i,0:num_objects,0:num_objects,:],dim=0)
+            object_pair_representations = torch.squeeze(object_pair_representations_batched[i,0:num_objects,0:num_objects,:],dim=0).contiguous()
             
             outputs.append([
                         None,
