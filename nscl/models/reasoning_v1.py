@@ -67,7 +67,8 @@ class ReasoningV1Model(nn.Module):
         attention_dispatch = {'cnn':sng.AttentionCNNSceneGraph,
                             'naive-rnn':sng.NaiveRNNSceneGraph,
                             'naive-rnn-batched':sng.NaiveRNNSceneGraphBatched,
-                            'naive-rnn-global-batched':sng.NaiveRNNSceneGraphGlobalBatched}
+                            'naive-rnn-global-batched':sng.NaiveRNNSceneGraphGlobalBatched,
+                            'structured-rnn-batched':sng.StructuredRNNSceneGraphBatched}
         self.scene_graph = attention_dispatch[args.attention_type](256, configs.model.sg_dims, 16)
 
         import nscl.nn.reasoning_v1.quasi_symbolic as qs
