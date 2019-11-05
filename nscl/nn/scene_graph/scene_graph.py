@@ -297,6 +297,7 @@ class StructuredRNNSceneGraphBatched(NaiveRNNSceneGraphBatched):
     def get_queries(self,fused_object_coords,batch_size,max_num_objects):
         device = fused_object_coords.device
 
+
         max_attention = torch.zeros(fused_object_coords.size(0),1,fused_object_coords.size(2),fused_object_coords.size(3)).to(device)
         h,c = torch.zeros(1,batch_size,self.feature_dim).to(device), torch.zeros(1,batch_size,self.feature_dim).to(device)
 
@@ -310,6 +311,7 @@ class StructuredRNNSceneGraphBatched(NaiveRNNSceneGraphBatched):
             query = output.view(batch_size,-1)
             attention_map_batched = torch.einsum("bj,bjkl -> bkl", query,fused_object_coords)
             attention_map_batched = nn.Softmax(1)(attention_map_batched.reshape(batch_size,-1)).view_as(attention_map_batched)
+            max_attention = max_attention.squeeze(1)
             max_attention = torch.max(max_attention,attention_map_batched).unsqueeze(1)
 
             query_list.append(query)
