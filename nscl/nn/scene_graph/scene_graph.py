@@ -154,6 +154,8 @@ class NaiveRNNSceneGraph(SceneGraph):
         queries = torch.squeeze(queries,dim=0)
         return queries
 
+
+
 class NaiveRNNSceneGraphBatchedBase(NaiveRNNSceneGraph):
     def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True):
         super().__init__(feature_dim, output_dims, downsample_rate)
@@ -230,6 +232,22 @@ class NaiveRNNSceneGraphBatched(NaiveRNNSceneGraphBatchedBase):
 
         return outputs
 
+
+class MaxRNNSceneGraphBatched(NaiveRNNSceneGraphBatchedBase):
+    def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True):
+        super().__init__(feature_dim, output_dims, downsample_rate)
+
+        self.attention_rnn = nn.LSTM(feature_dim, feature_dim,batch_first=True)
+        self.maxpool = nn.MaxPool2d((16,24))
+
+    
+
+    def get_queries(self,fused_object_coords,num_objects):
+
+        rnn_input = self.maxpool(fused_object_coords).squeeze(-1).squeeze(-1)
+        rnn_input = rnn_input.expand(-1,max_num_objects,-1)
+        queries,_ = self.attention_rnn(rnn_input)
+        return queries
 
 class NaiveRNNSceneGraphGlobalBatched(NaiveRNNSceneGraphBatchedBase):
     def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True):
