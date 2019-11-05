@@ -233,7 +233,7 @@ class NaiveRNNSceneGraphBatched(NaiveRNNSceneGraphBatchedBase):
         return outputs
 
 
-class MaxRNNSceneGraphBatched(NaiveRNNSceneGraphBatchedBase):
+class MaxRNNSceneGraphBatched(NaiveRNNSceneGraphBatched):
     def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True):
         super().__init__(feature_dim, output_dims, downsample_rate)
 
