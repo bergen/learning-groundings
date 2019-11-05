@@ -298,7 +298,7 @@ class StructuredRNNSceneGraphBatched(NaiveRNNSceneGraphBatched):
         device = fused_object_coords.device
 
         max_attention = torch.zeros(fused_object_coords.size(0),1,fused_object_coords.size(2),fused_object_coords.size(3)).to(device)
-        h,c = torch.zeros(batch_size,1,self.feature_dim).to(device), torch.zeros(batch_size,1,self.feature_dim).to(device)
+        h,c = torch.zeros(1,batch_size,self.feature_dim).to(device), torch.zeros(1,batch_size,self.feature_dim).to(device)
 
         query_list = []
 
