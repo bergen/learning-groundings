@@ -245,7 +245,7 @@ class MaxRNNSceneGraphBatched(NaiveRNNSceneGraphBatched):
     def get_queries(self,fused_object_coords,batch_size,max_num_objects):
 
         rnn_input = self.maxpool(fused_object_coords).squeeze(-1).squeeze(-1)
-        rnn_input = rnn_input.expand(-1,max_num_objects,-1)
+        rnn_input = rnn_input.unsqueeze(1).expand(-1,max_num_objects,-1)
         queries,_ = self.attention_rnn(rnn_input)
         return queries
 
