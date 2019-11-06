@@ -253,9 +253,9 @@ class NaiveRNNSceneGraphGlobalBatched(NaiveRNNSceneGraphBatchedBase):
     def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True):
         super().__init__(feature_dim, output_dims, downsample_rate)
 
-        self.object_global_fuse = nn.Sequential(nn.Conv2d(2*self.feature_dim,self.feature_dim,kernel_size=1),nn.ReLU(True))
+        self.maxpool = nn.MaxPool2d((16,24))
 
-        self.object_fc = nn.Sequential(nn.Linear(self.feature_dim*16*24,self.output_dims[1]),nn.ReLU(True))
+        self.object_fc = nn.Sequential(nn.Linear(2*self.feature_dim,self.output_dims[1]),nn.ReLU(True))
         
 
     def forward(self, input, objects, objects_length):
@@ -279,13 +279,13 @@ class NaiveRNNSceneGraphGlobalBatched(NaiveRNNSceneGraphBatchedBase):
 
         attention_map_batched = torch.einsum("bij,bjkl -> bikl", queries,fused_object_coords_batched)
         attention_map_batched = nn.Softmax(2)(attention_map_batched.reshape(batch_size,max_num_objects,-1)).view_as(attention_map_batched)
-        object_values_batched = torch.einsum("bijk,bljk -> biljk", attention_map_batched, fused_object_coords_batched) 
+        object_values_batched = torch.einsum("bijk,bljk -> bil", attention_map_batched, fused_object_coords_batched) 
 
-        global_context = fused_object_coords_batched.unsqueeze(1).repeat(1,max_num_objects,1,1,1)
-        object_global_cat = torch.cat((object_values_batched,global_context),dim=2).view(batch_size*max_num_objects,2*self.feature_dim,16,24)
-        object_global_fused = self.object_global_fuse(object_global_cat).view_as(object_values_batched)
+        global_context = self.maxpool(fused_object_coords_batched).squeeze(-1).squeeze(-1)
+        global_context = global_context.unsqueeze(1).repeat(1,max_num_objects,1)
+        object_global_cat = torch.cat((object_values_batched,global_context),dim=2).view(batch_size*max_num_objects,2*self.feature_dim)
 
-        object_representations_batched = self._norm(self.object_fc(object_global_fused.view(batch_size,max_num_objects,self.feature_dim*16*24)))
+        object_representations_batched = self._norm(self.object_fc(object_global_cat.view(batch_size,max_num_objects,self.feature_dim)))
 
 
         object_pair_representations_batched = self.objects_to_pair_representations(object_representations_batched)
