@@ -138,6 +138,7 @@ def main():
             ('-qtrans_' + args.question_transform if args.question_transform is not None else '') +
             ('-' + args.expr if args.expr is not None else '') +
             ('-lr_' + str(args.lr)) + 
+            ('-batch_' + str(args.batch_size)) + 
             ('-attention_' + str(args.attention_type))
         )
     ))
