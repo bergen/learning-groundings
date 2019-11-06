@@ -310,27 +310,27 @@ class StructuredRNNSceneGraphBatched(NaiveRNNSceneGraphBatched):
     def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True):
         super().__init__(feature_dim, output_dims, downsample_rate)
 
-        self.scene_attention_fuse = nn.Sequential(nn.Conv2d(1+self.feature_dim,self.feature_dim,kernel_size=1),nn.ReLU(True))
+        self.attention_rnn = nn.LSTM(2*feature_dim, feature_dim,batch_first=True)
+        self.maxpool = nn.MaxPool2d((16,24))
 
     def get_queries(self,fused_object_coords,batch_size,max_num_objects):
         device = fused_object_coords.device
 
+        scene_representation = self.maxpool(fused_object_coords).squeeze(-1).squeeze(-1)
 
-        max_attention = torch.zeros(fused_object_coords.size(0),1,fused_object_coords.size(2),fused_object_coords.size(3)).to(device)
+        object_representation = torch.zeros(batch_size,self.feature_dim).to(device)
         h,c = torch.zeros(1,batch_size,self.feature_dim).to(device), torch.zeros(1,batch_size,self.feature_dim).to(device)
 
         query_list = []
 
         for i in range(max_num_objects):
-            rnn_input = torch.cat((fused_object_coords,max_attention),dim=1)
-            rnn_input = self.scene_attention_fuse(rnn_input)
-            output, (h,c) = self.attention_rnn(rnn_input.view(batch_size,1,-1),(h,c))
+            rnn_input = torch.cat((scene_representation,object_representation),dim=1).unsqueeze(1)
+            output, (h,c) = self.attention_rnn(rnn_input,(h,c))
 
             query = output.view(batch_size,-1)
             attention_map_batched = torch.einsum("bj,bjkl -> bkl", query,fused_object_coords)
             attention_map_batched = nn.Softmax(1)(attention_map_batched.reshape(batch_size,-1)).view_as(attention_map_batched)
-            max_attention = max_attention.squeeze(1)
-            max_attention = torch.max(max_attention,attention_map_batched).unsqueeze(1)
+            object_representation = torch.einsum("bjk,bljk -> bl", attention_map_batched, fused_object_coords) 
 
             query_list.append(query)
 
