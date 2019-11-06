@@ -283,9 +283,9 @@ class NaiveRNNSceneGraphGlobalBatched(NaiveRNNSceneGraphBatchedBase):
 
         global_context = self.maxpool(fused_object_coords_batched).squeeze(-1).squeeze(-1)
         global_context = global_context.unsqueeze(1).repeat(1,max_num_objects,1)
-        object_global_cat = torch.cat((object_values_batched,global_context),dim=2).view(batch_size*max_num_objects,2*self.feature_dim)
+        object_global_cat = torch.cat((object_values_batched,global_context),dim=2)
 
-        object_representations_batched = self._norm(self.object_fc(object_global_cat.view(batch_size,max_num_objects,self.feature_dim)))
+        object_representations_batched = self._norm(self.object_fc(object_global_cat))
 
 
         object_pair_representations_batched = self.objects_to_pair_representations(object_representations_batched)
