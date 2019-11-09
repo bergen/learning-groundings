@@ -185,6 +185,7 @@ def get_validation_results(filename):
     
     write_to_csv(results, filename)
 
+
 def get_wrong_ids():
     wrong_ids = load_csv('/home/lbergen/NeuralDRS/NSCL-PyTorch-Release/data_vis_dir/simplest_wrong.csv')
     return [int(r[0]) for r in wrong_ids]
@@ -426,7 +427,16 @@ def main():
     logger.info('Happy Holiday! You can find your result at "http://monday.csail.mit.edu/xiuming' + osp.realpath(args.data_vis_dir) + '".')
 
 
+def view_feed_dict():
+    validation_iter, _ = get_data(batch_size=1,dataset_size=3)
+
+    for i in range(len(validation_iter)):
+        feed_dict = next(validation_iter)
+        print(feed_dict)
+
+
 if __name__ == '__main__':
-    visualize_sum_attentions(filter_for_ids=True)
+    #visualize_sum_attentions(filter_for_ids=True)
     #get_validation_results('validation_results.csv')
+    view_feed_dict()
 
