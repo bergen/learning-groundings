@@ -232,6 +232,30 @@ class NaiveRNNSceneGraphBatched(NaiveRNNSceneGraphBatchedBase):
 
         return outputs
 
+    def compute_attention(self,input, objects, objects_length):
+        object_features = input
+        
+
+        batch_size = input.size(0)
+        max_num_objects = max(objects_length)
+       
+        outputs = list()
+        #object_features has shape batch_size x 256 x 16 x 24
+        obj_coord_map = torch.unsqueeze(coord_map((object_features.size(2),object_features.size(3)),object_features.device),dim=0)
+
+        obj_coord_map_batched = obj_coord_map.repeat(batch_size,1,1,1)
+
+        scene_object_coords_batched = torch.cat((object_features,obj_coord_map_batched), dim=1)
+
+        fused_object_coords_batched = self.object_coord_fuse(scene_object_coords_batched)
+
+        queries = self.get_queries(fused_object_coords_batched, batch_size, max_num_objects)
+
+        attention_map_batched = torch.einsum("bij,bjkl -> bikl", queries,fused_object_coords_batched)
+        attention_map_batched = nn.Softmax(2)(attention_map_batched.reshape(batch_size,max_num_objects,-1)).view_as(attention_map_batched)
+
+        return attention_map_batched
+
 
 class MaxRNNSceneGraphBatched(NaiveRNNSceneGraphBatched):
     def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True):

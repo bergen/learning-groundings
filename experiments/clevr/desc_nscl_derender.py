@@ -64,6 +64,17 @@ class Model(ReasoningV1Model):
             outputs['buffers'] = buffers
             return outputs
 
+    def get_sng(self, feed_dict):
+        feed_dict = GView(feed_dict)
+        monitors, outputs = {}, {}
+
+        f_scene = self.resnet(feed_dict.image)
+        f_sng = self.scene_graph(f_scene, feed_dict.objects, feed_dict.objects_length)
+        
+        
+
+        return f_sng
+
 
 def make_model(args, vocab):
     return Model(args, vocab)

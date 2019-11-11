@@ -56,6 +56,11 @@ parser.add_argument('--desc', type='checked_file', metavar='FILE')
 parser.add_argument('--configs', default='', type='kv', metavar='CFGS')
 parser.add_argument('--resume', type='checked_file', default=None, metavar='FILE', help='path to latest checkpoint (default: none)')
 
+
+parser.add_argument('--attention-type', default='cnn', choices=['cnn', 'naive-rnn', 'naive-rnn-batched',
+                                                                'naive-rnn-global-batched','structured-rnn-batched','max-rnn-batched'])
+
+
 args = parser.parse_args()
 
 args.data_image_root = osp.join(args.data_dir, 'images')
@@ -428,15 +433,142 @@ def main():
 
 
 def view_feed_dict():
-    validation_iter, _ = get_data(batch_size=1,dataset_size=3)
+    validation_iter, _ = get_data(batch_size=1,dataset_size=20)
+    model = make_model()
 
     for i in range(len(validation_iter)):
         feed_dict = next(validation_iter)
-        print(feed_dict)
+        feed_dict['image'] = feed_dict['image'].cuda()
+        sng = model.get_sng(feed_dict)
+        #outputs = model_forward(model,feed_dict)
+        model.reasoning.inference_query(sng)
+
+def get_object_graph(model,features,one_hot):
+    d = {}
+
+    q_color = ['color']
+    q_size = ['size']
+    q_material = ['material']
+    q_shape = ['shape']
+
+    a_color = model.reasoning.inference_query(features,one_hot,q_color)
+    a_size = model.reasoning.inference_query(features,one_hot,q_size)
+    a_material = model.reasoning.inference_query(features,one_hot,q_material)
+    a_shape = model.reasoning.inference_query(features,one_hot,q_shape)
+
+    d['color'] = a_color
+    d['size'] = a_size
+    d['material'] = a_material
+    d['shape'] = a_shape
+
+    return d
+
+def get_scene_graph(model,feed_dict):
+    feed_dict['image'] = feed_dict['image'].cuda()
+    sng = model.get_sng(feed_dict)
+    return sng[0]
+
+def visualize_scene_graph():
+    data = []
+
+    validation_iter, _ = get_data(batch_size=1,dataset_size=300)
+    model = make_model()
+    for i in range(len(validation_iter)):
+        feed_dict = next(validation_iter)
+        new_image_name = feed_dict['image_filename'][0]
+        if i==0:
+            old_image_name = feed_dict['image_filename'][0]
+        elif old_image_name == new_image_name:
+            continue
+
+
+        old_image_name = new_image_name
+
+        attention = get_attention(model, feed_dict) 
+        #model_forward(model, feed_dict)
+        image = feed_dict['image']
+        print(feed_dict['image_filename'])
+
+        image_filename = osp.join(args.data_image_root, new_image_name)
+        pil_image = Image.open(image_filename)
+        torch_image = transforms.ToTensor()(pil_image)
+        
+        #scene_pil_image = transforms.ToPILImage()(torch.squeeze(image,dim=0))
+
+        features = get_scene_graph(model,feed_dict)
+
+        num_objects = features[1].size(0)
+
+        for j in range(num_objects):
+            #get the graph for the current object
+            one_hot = torch.zeros(num_objects, dtype=torch.float, device=features[1].device)
+            one_hot[j] = 1
+            object_graph = get_object_graph(model,features,one_hot)
+
+
+            #get the attentions
+            object_attention = torch.unsqueeze(torch.unsqueeze(attention[0,j,:].cpu(),dim=0),dim=0)
+
+            upsampled_attention = torch.squeeze(nn.functional.interpolate(object_attention,size=(320,480)))
+            
+            mask=torch.zeros(upsampled_attention.size())
+            image_filtered = torch.where(upsampled_attention>0.1,mask,torch_image)
+        
+            object_image = transforms.ToPILImage()(image_filtered)
+
+
+            d = {}
+            d['image'] = pil_image
+            d['object_attention'] = object_image
+            d['object_graph'] = object_graph
+            data.append(d)
+
+
+        old_image_name = new_image_name
+
+    save_scene_graph(data)
+
+
+def save_scene_graph(processed):
+    #processed is a dict
+    vis = HTMLTableVisualizer(args.data_vis_dir, 'Dataset: ' + args.dataset.upper() + "_scenegraph")
+    vis.begin_html()
+
+    indices = len(processed)
+
+    with vis.table('Visualize', [
+        HTMLTableColumnDesc('scene', 'Scene', 'figure', {'width': '80%'},None),
+        HTMLTableColumnDesc('attention', 'Attention', 'figure', {'width': '80%'},None),
+        HTMLTableColumnDesc('graph', 'Object representation', 'text', css=None,td_css={'width': '30%'}),
+    ]):
+        for i in tqdm(indices):
+                d = processed[i]
+                scene_image = d['image']
+                attention_image = d['object_attention']
+                graph = d['object_graph']
+
+
+                scene_fig, ax = vis_bboxes(scene_image, [], 'object', add_text=False)
+
+                attention_fig, ax = vis_bboxes(attention_image, [], 'object', add_text=False)
+
+
+                graph_string = """
+                    <p><b>Color</b>: {}</p>
+                    <p><b>Material</b>: {}</p>
+                    <p><b>Size</b>: {}</p>
+                    <p><b>Shape</b>: {}</p>
+                """.format(graph['color'], graph['material'], graph['size'], graph['shape'])
+
+
+
+                vis.row(scene=scene_fig,attention=attention_fig,graph=graph_string)
+                plt.close()
+    vis.end_html()
 
 
 if __name__ == '__main__':
     #visualize_sum_attentions(filter_for_ids=True)
     #get_validation_results('validation_results.csv')
-    view_feed_dict()
+    visualize_scene_graph()
 

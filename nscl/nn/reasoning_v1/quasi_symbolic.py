@@ -238,6 +238,11 @@ class ProgramExecutorContext(nn.Module):
         mask = (mask * selected.unsqueeze(-1).unsqueeze(0)).sum(dim=-2)
         if torch.is_tensor(group):
             return (mask * group.unsqueeze(1)).sum(dim=0), word2idx
+        #print(selected)
+        #print(group)
+        #print(attribute_groups)
+        #print(mask[group])
+        #print(word2idx)
         return mask[group], word2idx
 
     def query_ls(self, selected, group, attribute_groups):
@@ -391,6 +396,7 @@ class DifferentiableReasoning(nn.Module):
                     buffer.append(10 + torch.zeros(features[1].size(0), dtype=torch.float, device=features[1].device))
                     continue
 
+                print(buffer)
                 inputs = []
                 for inp, inp_type in zip(block['inputs'], gdef.operation_signatures_dict[op][1]):
                     inp = buffer[inp]
@@ -451,3 +457,12 @@ class DifferentiableReasoning(nn.Module):
             quasi_symbolic_debug.embed(self, i, buffer, result, fd)
 
         return programs, buffers, result
+
+    def inference_query(self, features, one_hot, query_type):
+        ctx = ProgramExecutorContext(self.embedding_attribute, self.embedding_relation, features, parameter_resolution=self.parameter_resolution, training=self.training)
+        output, d = ctx.query(one_hot,0,query_type)
+        m = int(torch.argmax(output))
+        reverse_d = dict([(d[k],k) for k in d.keys()])
+        return reverse_d[m]
+
+
