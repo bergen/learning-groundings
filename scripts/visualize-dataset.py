@@ -135,8 +135,8 @@ def get_data(batch_size=1, dataset_size=500):
 
 
 def get_attention(model,feed_dict):
-    scene_representation = model.resnet(feed_dict['image'].cuda())
-    attention = model.scene_graph.compute_attention(scene_representation,feed_dict['objects'].cuda(), feed_dict['objects_length'])
+    feed_dict['image'] = feed_dict['image'].cuda()
+    attention = model.get_attention(feed_dict)
     return attention
 
 def model_forward(model,feed_dict):
@@ -468,10 +468,21 @@ def get_scene_graph(model,feed_dict):
     sng = model.get_sng(feed_dict)
     return sng[0]
 
+def test_scene_graph(model,feed_dict):
+    feed_dict['image'] = feed_dict['image'].cuda()
+    batched_sng = model.get_sng(feed_dict)
+
+    scene_representation = model.resnet(feed_dict['image'])
+    unbatched_sng = model.scene_graph.test_batching(scene_representation,feed_dict['objects'].cuda(), feed_dict['objects_length'])
+
+    print(batched_sng)
+    print(unbatched_sng)
+    
+
 def visualize_scene_graph():
     data = []
 
-    validation_iter, _ = get_data(batch_size=1,dataset_size=300)
+    validation_iter, _ = get_data(batch_size=1,dataset_size=100)
     model = make_model()
     for i in range(len(validation_iter)):
         feed_dict = next(validation_iter)
@@ -481,6 +492,7 @@ def visualize_scene_graph():
         elif old_image_name == new_image_name:
             continue
 
+        #test_scene_graph(model,feed_dict)
 
         old_image_name = new_image_name
 
@@ -496,6 +508,8 @@ def visualize_scene_graph():
         #scene_pil_image = transforms.ToPILImage()(torch.squeeze(image,dim=0))
 
         features = get_scene_graph(model,feed_dict)
+
+        
 
         num_objects = features[1].size(0)
 

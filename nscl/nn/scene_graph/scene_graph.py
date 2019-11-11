@@ -72,7 +72,7 @@ class SceneGraph(nn.Module):
             fused_object_coords = torch.squeeze(self.object_coord_fuse(scene_object_coords),dim=0) #dim=256 x Z x Y
 
 
-            num_objects = objects_length[i].item()
+            num_objects = objects_length[i]
 
             queries = self.get_queries(fused_object_coords,num_objects)
 
@@ -219,7 +219,7 @@ class NaiveRNNSceneGraphBatched(NaiveRNNSceneGraphBatchedBase):
 
         outputs = []
         for i in range(batch_size):
-            num_objects = objects_length[i].item()
+            num_objects = objects_length[i]
             object_representations = torch.squeeze(object_representations_batched[i,0:num_objects,:],dim=0)
             object_pair_representations = torch.squeeze(object_pair_representations_batched[i,0:num_objects,0:num_objects,:],dim=0).contiguous()
             
@@ -273,6 +273,76 @@ class MaxRNNSceneGraphBatched(NaiveRNNSceneGraphBatched):
         queries,_ = self.attention_rnn(rnn_input)
         return queries
 
+
+    def test_batching(self,input, objects, objects_length):
+
+        def get_queries(fused_object_coords,num_objects):
+            rnn_input = self.maxpool(fused_object_coords.unsqueeze(0)).squeeze(-1).squeeze(-1)
+            rnn_input = rnn_input.unsqueeze(1).expand(-1,num_objects,-1)
+            queries,_ = self.attention_rnn(rnn_input)
+            queries = torch.squeeze(queries,dim=0)
+            return queries
+
+        def objects_to_pair_representations(object_representations):
+            num_objects = object_representations.size(0)
+
+            obj1_representations = self.obj1_linear(object_representations)
+            obj2_representations = self.obj2_linear(object_representations)
+
+            obj1_representations.unsqueeze_(-1)
+            obj2_representations.unsqueeze_(-1)
+
+            obj1_representations = obj1_representations.transpose(1,2)
+            obj2_representations = obj2_representations.transpose(1,2).transpose(0,1)
+
+            obj1_representations = obj1_representations.repeat(1,num_objects,1)
+            obj2_representations = obj2_representations.repeat(num_objects,1,1)
+
+            object_pair_representations = obj1_representations+obj2_representations
+
+            return object_pair_representations
+
+        object_features = input
+        
+
+
+       
+        outputs = list()
+        #object_features has shape batch_size x 256 x 16 x 24
+        obj_coord_map = coord_map((object_features.size(2),object_features.size(3)),object_features.device)
+        
+        for i in range(input.size(0)):
+            single_scene_object_features =  torch.squeeze(object_features[i,:],dim=0) #dim=256 x 16 x 24
+            scene_object_coords = torch.unsqueeze(torch.cat((single_scene_object_features,obj_coord_map),dim=0),dim=0)
+
+            fused_object_coords = torch.squeeze(self.object_coord_fuse(scene_object_coords),dim=0) #dim=256 x Z x Y
+
+
+            num_objects = objects_length[i]
+
+            queries = get_queries(fused_object_coords,num_objects)
+
+
+
+            attention_map = torch.einsum("ij,jkl -> ikl", queries,fused_object_coords) #dim=num_objects x Z x Y
+            attention_map = nn.Softmax(1)(attention_map.view(num_objects,-1)).view_as(attention_map)
+            object_values = torch.einsum("ijk,ljk -> il", attention_map, fused_object_coords) #dim=num_objects x 256
+
+            object_representations = self._norm(self.object_features_layer(object_values))
+
+            object_pair_representations = objects_to_pair_representations(object_representations)
+
+
+            outputs.append([
+                        None,
+                        object_representations,
+                        object_pair_representations
+                    ])
+
+        return outputs
+
+        
+
 class NaiveRNNSceneGraphGlobalBatched(NaiveRNNSceneGraphBatchedBase):
     def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True):
         super().__init__(feature_dim, output_dims, downsample_rate)
@@ -317,7 +387,7 @@ class NaiveRNNSceneGraphGlobalBatched(NaiveRNNSceneGraphBatchedBase):
 
         outputs = []
         for i in range(batch_size):
-            num_objects = objects_length[i].item()
+            num_objects = objects_length[i]
             object_representations = torch.squeeze(object_representations_batched[i,0:num_objects,:],dim=0)
             object_pair_representations = torch.squeeze(object_pair_representations_batched[i,0:num_objects,0:num_objects,:],dim=0).contiguous()
             
@@ -389,7 +459,7 @@ class AttentionCNNSceneGraph(SceneGraph):
             fused_object_coords = torch.squeeze(self.object_coord_fuse(scene_object_coords),dim=0) #dim=256 x Z x Y
 
 
-            num_objects = objects_length[i].item()
+            num_objects = objects_length[i]
 
 
             attention_map_list = []

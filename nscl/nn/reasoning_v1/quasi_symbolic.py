@@ -238,11 +238,7 @@ class ProgramExecutorContext(nn.Module):
         mask = (mask * selected.unsqueeze(-1).unsqueeze(0)).sum(dim=-2)
         if torch.is_tensor(group):
             return (mask * group.unsqueeze(1)).sum(dim=0), word2idx
-        #print(selected)
-        #print(group)
-        #print(attribute_groups)
-        #print(mask[group])
-        #print(word2idx)
+
         return mask[group], word2idx
 
     def query_ls(self, selected, group, attribute_groups):
@@ -396,7 +392,6 @@ class DifferentiableReasoning(nn.Module):
                     buffer.append(10 + torch.zeros(features[1].size(0), dtype=torch.float, device=features[1].device))
                     continue
 
-                print(buffer)
                 inputs = []
                 for inp, inp_type in zip(block['inputs'], gdef.operation_signatures_dict[op][1]):
                     inp = buffer[inp]

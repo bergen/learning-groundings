@@ -135,6 +135,7 @@ def main():
         'dumps', args.series_name, args.desc_name, (
             args.training_target +
             ('-curriculum_' + args.curriculum) +
+            ('-dataset_' + args.data_image_root) +
             ('-qtrans_' + args.question_transform if args.question_transform is not None else '') +
             ('-' + args.expr if args.expr is not None else '') +
             ('-lr_' + str(args.lr)) + 

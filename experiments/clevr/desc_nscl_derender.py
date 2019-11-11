@@ -32,12 +32,24 @@ class Model(ReasoningV1Model):
     def __init__(self, args, vocab):
         super().__init__(args, vocab, configs)
 
+    def get_object_lengths(self,feed_dict):
+        object_lengths = []
+        scene = feed_dict['scene']
+        for d in scene:
+            num_objects = len(d['objects'])
+            object_lengths.append(num_objects)
+
+        return object_lengths
+
     def forward(self, feed_dict):
+        object_lengths = self.get_object_lengths(feed_dict)
+
         feed_dict = GView(feed_dict)
         monitors, outputs = {}, {}
 
+
         f_scene = self.resnet(feed_dict.image)
-        f_sng = self.scene_graph(f_scene, feed_dict.objects, feed_dict.objects_length)
+        f_sng = self.scene_graph(f_scene, feed_dict.objects, object_lengths)
         
         
 
@@ -65,15 +77,27 @@ class Model(ReasoningV1Model):
             return outputs
 
     def get_sng(self, feed_dict):
+
+        object_lengths = self.get_object_lengths(feed_dict)
+
         feed_dict = GView(feed_dict)
-        monitors, outputs = {}, {}
 
         f_scene = self.resnet(feed_dict.image)
-        f_sng = self.scene_graph(f_scene, feed_dict.objects, feed_dict.objects_length)
+        f_sng = self.scene_graph(f_scene, feed_dict.objects, object_lengths)
         
         
-
         return f_sng
+
+    def get_attention(self,feed_dict):
+        object_lengths = self.get_object_lengths(feed_dict)
+
+        feed_dict = GView(feed_dict)
+
+        f_scene = self.resnet(feed_dict.image)
+        attention = self.scene_graph.compute_attention(f_scene,feed_dict.objects, object_lengths)
+
+        return attention
+
 
 
 def make_model(args, vocab):
