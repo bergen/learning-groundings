@@ -127,5 +127,7 @@ def initialize_ising_matrix():
             if j<height-1:
                 ising_matrix[i,j,i,j+1]=-1
 
+    return ising_matrix
+
 def make_model(args, vocab):
     return Model(args, vocab)
