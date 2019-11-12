@@ -18,6 +18,7 @@ to get the supervision for the VSE modules. This model tests the implementation 
 Note that, in order to train this model, one must use the curriculum learning.
 """
 
+import torch
 from jacinle.utils.container import GView
 from nscl.models.reasoning_v1 import make_reasoning_v1_configs, ReasoningV1Model
 from nscl.models.utils import canonize_monitors, update_from_loss_module
