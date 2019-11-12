@@ -129,13 +129,18 @@ desc = load_source(args.desc)
 configs = desc.configs
 args.configs.apply(configs)
 
+if "simple" in args.data_image_root:
+    dataset_type = "simple"
+else:
+    dataset_type = "full"
+
 
 def main():
     args.dump_dir = ensure_path(osp.join(
         'dumps', args.series_name, args.desc_name, (
             args.training_target +
             ('-curriculum_' + args.curriculum) +
-            ('-dataset_' + args.data_image_root) +
+            ('-dataset_' + dataset_type) +
             ('-qtrans_' + args.question_transform if args.question_transform is not None else '') +
             ('-' + args.expr if args.expr is not None else '') +
             ('-lr_' + str(args.lr)) + 

@@ -526,7 +526,7 @@ def visualize_scene_graph():
             upsampled_attention = torch.squeeze(nn.functional.interpolate(object_attention,size=(320,480)))
             
             mask=torch.zeros(upsampled_attention.size())
-            image_filtered = torch.where(upsampled_attention>0.1,mask,torch_image)
+            image_filtered = torch.where(upsampled_attention>0.01,mask,torch_image)
         
             object_image = transforms.ToPILImage()(image_filtered)
 
