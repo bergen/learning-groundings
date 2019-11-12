@@ -111,7 +111,7 @@ class Model(ReasoningV1Model):
 
         w = 0.1
 
-        energy = torch.einsum('bij,ijkl,bkl->',attention,ising_matrix,attention)
+        energy = torch.einsum('bcij,ijkl,bckl->',attention,ising_matrix,attention)
 
         return w*energy
 
