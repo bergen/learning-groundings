@@ -33,6 +33,7 @@ class Model(ReasoningV1Model):
         super().__init__(args, vocab, configs)
 
         self.ising_matrix = initialize_ising_matrix()
+        self.attention_loss = args.attention_loss
 
     def get_object_lengths(self,feed_dict):
         object_lengths = []
@@ -70,7 +71,7 @@ class Model(ReasoningV1Model):
 
         if self.training:
             loss = monitors['loss/qa']
-            if configs.train.attention_loss:
+            if self.attention_loss:
                 attention = self.scene_graph.compute_attention(f_scene, feed_dict.objects, object_lengths)
                 loss += self.compute_attention_loss(attention)
             if configs.train.scene_add_supervision:

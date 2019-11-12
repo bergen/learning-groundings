@@ -91,6 +91,7 @@ parser.add_argument('--force-gpu', action='store_true', help='force the script t
 parser.add_argument('--attention-type', default='cnn', choices=['cnn', 'naive-rnn', 'naive-rnn-batched',
                                                                 'naive-rnn-global-batched','structured-rnn-batched','max-rnn-batched'])
 
+parser.add_argument('--attention-loss', type='bool', default=False)
 
 args = parser.parse_args()
 
@@ -145,7 +146,8 @@ def main():
             ('-' + args.expr if args.expr is not None else '') +
             ('-lr_' + str(args.lr)) + 
             ('-batch_' + str(args.batch_size)) + 
-            ('-attention_' + str(args.attention_type))
+            ('-attention_' + str(args.attention_type)) +
+            ('-attention_loss' + str(args.attention_loss))
         )
     ))
 

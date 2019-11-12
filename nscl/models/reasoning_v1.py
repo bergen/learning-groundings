@@ -48,7 +48,6 @@ def make_reasoning_v1_configs():
     configs.train.scene_add_supervision = False
     configs.train.qa_add_supervision = False
     configs.train.parserv1_reward_shape = 'loss'
-    configs.train.attention_loss = True
 
     return configs
 
