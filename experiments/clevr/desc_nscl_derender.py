@@ -34,7 +34,10 @@ class Model(ReasoningV1Model):
         super().__init__(args, vocab, configs)
 
         self.ising_matrix = initialize_ising_matrix()
-        self.attention_loss = args.attention_loss
+        try:
+            self.attention_loss = args.attention_loss
+        except Exception as e:
+            pass
 
     def get_object_lengths(self,feed_dict):
         object_lengths = []
@@ -109,7 +112,7 @@ class Model(ReasoningV1Model):
         device = attention.device
         ising_matrix = self.ising_matrix.to(device)
 
-        w = 0.1
+        w = 0.01
 
         energy = torch.einsum('bcij,ijkl,bckl->',attention,ising_matrix,attention)
 
