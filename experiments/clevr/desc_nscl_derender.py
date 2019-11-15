@@ -129,16 +129,6 @@ class Model(ReasoningV1Model):
 
 
 
-
-        ising_matrix = self.ising_matrix.to(device)
-
-        
-
-        energy = torch.einsum('bcij,ijkl,bckl->',attention,ising_matrix,attention)
-
-        return w*energy
-
-
 def initialize_ising_matrix():
     width = 16
     height = 24
