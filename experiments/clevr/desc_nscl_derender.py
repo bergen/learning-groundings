@@ -33,7 +33,6 @@ class Model(ReasoningV1Model):
     def __init__(self, args, vocab):
         super().__init__(args, vocab, configs)
 
-        self.ising_matrix = initialize_ising_matrix()
         try:
             self.attention_loss = args.attention_loss
         except Exception as e:
@@ -109,10 +108,31 @@ class Model(ReasoningV1Model):
         return attention
 
     def compute_attention_loss(self,attention):
-        device = attention.device
+        w = 0.01
+
+        width = attention.size(2)
+        height = attention.size(3)
+        loss = torch.tensor(0,dtype=torch.float,device=attention.device)
+
+        for i in range(width):
+            for j in range(height):
+                if i<width-1:
+                    diff = attention[:,:,i,j] - attention[:,:,i+1,j]
+                    sq_diff = torch.pow(diff,2)
+                    loss+=torch.sum(sq_diff)
+                if j<height-1:
+                    diff = attention[:,:,i,j] - attention[:,:,i,j+1]
+                    sq_diff = torch.pow(diff,2)
+                    loss+=torch.sum(sq_diff)
+        
+        return w*loss
+
+
+
+
         ising_matrix = self.ising_matrix.to(device)
 
-        w = 0.01
+        
 
         energy = torch.einsum('bcij,ijkl,bckl->',attention,ising_matrix,attention)
 
