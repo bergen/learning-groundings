@@ -92,6 +92,8 @@ parser.add_argument('--attention-type', default='cnn', choices=['cnn', 'naive-rn
                                                                 'naive-rnn-global-batched','structured-rnn-batched','max-rnn-batched'])
 
 parser.add_argument('--attention-loss', type='bool', default=False)
+parser.add_argument('--adversarial-loss', type='bool', default=False)
+
 
 args = parser.parse_args()
 
@@ -135,6 +137,10 @@ if "simple" in args.data_image_root:
 else:
     dataset_type = "full"
 
+def initialize_adversary():
+    from nscl.nn.adversarial import Adversary
+    adversary = Adversary(configs.model.sg_dims)
+    return adversary
 
 def main():
     args.dump_dir = ensure_path(osp.join(
@@ -197,9 +203,13 @@ def main():
 def main_train(train_dataset, validation_dataset, extra_dataset=None):
     logger.critical('Building the model.')
     model = desc.make_model(args, train_dataset.unwrapped.vocab)
+    if args.adversarial_loss:
+        adversary = initialize_adversary()
 
     if args.use_gpu:
         model.cuda()
+        if args.adversarial_loss:
+            adversary.cuda()
         # Use the customized data parallel if applicable.
         if args.gpu_parallel:
             from jactorch.parallel import JacDataParallel
@@ -215,6 +225,14 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
         from jactorch.optim import AdamW
         trainable_parameters = filter(lambda x: x.requires_grad, model.parameters())
         optimizer = AdamW(trainable_parameters, args.lr, weight_decay=configs.train.weight_decay)
+
+        if args.adversarial_loss:
+            from nscl.nn.reasoning_v1.losses import AdversarialLoss
+            adversarial_loss = AdversarialLoss()
+            adversarial_parameters = filter(lambda x: x.requires_grad, adversary.parameters())
+            adversarial_optimizer = AdamW(adversarial_parameters, args.lr)
+            adversarial_trainer = {'adversary':adversary,'adversarial_optimizer':adversarial_optimizer,'adversarial_loss':adversarial_loss}
+
 
     if args.acc_grad > 1:
         from jactorch.optim import AccumGrad
@@ -331,6 +349,8 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
         meters.reset()
 
         model.train()
+        if args.adversarial_loss:
+            adversary.train()
 
         this_train_dataset = train_dataset
         if args.curriculum != 'off':
@@ -347,7 +367,10 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
         train_dataloader = this_train_dataset.make_dataloader(args.batch_size, shuffle=True, drop_last=True, nr_workers=args.data_workers)
 
         for enum_id in range(args.enums_per_epoch):
-            train_epoch(epoch, trainer, train_dataloader, meters)
+            if args.adversarial_loss:
+                train_epoch(epoch, trainer, train_dataloader, meters, adversarial_trainer)
+            else:
+                train_epoch(epoch, trainer, train_dataloader, meters)
 
         if epoch % args.validation_interval == 0:
             model.eval()
@@ -380,10 +403,15 @@ def backward_check_nan(self, feed_dict, loss, monitors, output_dict):
             from IPython import embed; embed()
 
 
-def train_epoch(epoch, trainer, train_dataloader, meters):
+def train_epoch(epoch, trainer, train_dataloader, meters,adversarial_trainer=None):
     nr_iters = args.iters_per_epoch
     if nr_iters == 0:
         nr_iters = len(train_dataloader)
+
+    if adversarial_trainer is not None:
+        adversary = adversarial_trainer['adversary']
+        adversarial_optimizer = adversarial_trainer['adversarial_optimizer']
+        adversarial_loss = adversarial_trainer['adversarial_loss']
 
     meters.update(epoch=epoch)
 
@@ -394,6 +422,8 @@ def train_epoch(epoch, trainer, train_dataloader, meters):
     with tqdm_pbar(total=nr_iters) as pbar:
         for i in range(nr_iters):
             feed_dict = next(train_iter)
+            feed_dict['adversary'] = adversary
+
 
             if args.use_gpu:
                 if not args.gpu_parallel:
@@ -402,6 +432,18 @@ def train_epoch(epoch, trainer, train_dataloader, meters):
             data_time = time.time() - end; end = time.time()
 
             loss, monitors, output_dict, extra_info = trainer.step(feed_dict, cast_tensor=False)
+            if adversarial_trainer is not None:
+                adversary.zero_grad()
+                f_sng = output_dict['scene_graph']
+                f_sng = [[x[0],x[1].detach(),x[2]] for x in f_sng]
+                l = -1 * adversarial_loss(f_sng,adversary)
+                print(l)
+                l.backward()
+                adversarial_optimizer.step()
+
+
+                
+
             step_time = time.time() - end; end = time.time()
 
             n = feed_dict['image'].size(0)

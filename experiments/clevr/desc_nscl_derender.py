@@ -38,6 +38,11 @@ class Model(ReasoningV1Model):
         except Exception as e:
             pass
 
+        try:
+            self.use_adversarial_loss = args.adversarial_loss
+        except Exception as e:
+            pass
+
     def get_object_lengths(self,feed_dict):
         object_lengths = []
         scene = feed_dict['scene']
@@ -77,8 +82,12 @@ class Model(ReasoningV1Model):
             if self.attention_loss:
                 attention = self.scene_graph.compute_attention(f_scene, feed_dict.objects, object_lengths)
                 loss += self.compute_attention_loss(attention)
-            if configs.train.scene_add_supervision:
-                loss = loss + monitors['loss/scene']
+            #if configs.train.scene_add_supervision:
+            #    loss = loss + monitors['loss/scene']
+            if self.use_adversarial_loss:
+                w=0.1
+                loss += w*self.adversarial_loss(f_sng,feed_dict.adversary)
+                outputs['scene_graph'] = f_sng
             return loss, monitors, outputs
         else:
             outputs['monitors'] = monitors
@@ -129,18 +138,6 @@ class Model(ReasoningV1Model):
 
 
 
-def initialize_ising_matrix():
-    width = 16
-    height = 24
-    ising_matrix = torch.zeros(width,height,width,height)
-    for i in range(width):
-        for j in range(height):
-            if i<width-1:
-                ising_matrix[i,j,i+1,j]=-1
-            if j<height-1:
-                ising_matrix[i,j,i,j+1]=-1
-
-    return ising_matrix
 
 def make_model(args, vocab):
     return Model(args, vocab)

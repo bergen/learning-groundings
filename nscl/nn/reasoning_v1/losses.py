@@ -12,6 +12,8 @@ import os
 import torch
 import torch.nn.functional as F
 
+import numpy as np
+
 from jacinle.utils.enum import JacEnum
 from nscl.nn.losses import MultitaskLossBase
 from nscl.datasets.definition import gdef
@@ -240,4 +242,40 @@ class ParserV1Loss(MultitaskLossBase):
             # \Pr[p] * reward * \nabla \log \Pr[p]
             policy_loss += (-(likelihood * rewards).detach() * discounted_log_likelihood).sum()
         return {'loss/program': policy_loss}, dict()
+
+
+class AdversarialLoss(MultitaskLossBase):
+    def __init__(self):
+        super().__init__()
+        
+    def forward(self, f_sng, adversary):
+
+        total_loss = torch.tensor(0,dtype=float,device=f_sng[0][1].device)
+
+        for scene in f_sng:
+            objects = scene[1]
+
+            num_objects = objects.size(0)
+            rand_pair = np.random.choice(num_objects, 2, replace=False)
+
+            first_obj_index = rand_pair[0]
+            second_obj_index = rand_pair[1]
+
+            label = 0 if first_obj_index<second_obj_index else 1
+
+            first_obj = objects[first_obj_index,:]
+            second_obj = objects[second_obj_index,:]
+
+            combined_objs = torch.unsqueeze(torch.cat((first_obj,second_obj),dim=0),dim=0)
+
+            pred = adversary(combined_objs)
+            pred = pred.mean()
+            total_loss -= self._bce_loss(pred,label)
+        return total_loss
+
+
+
+            
+
+        
 
