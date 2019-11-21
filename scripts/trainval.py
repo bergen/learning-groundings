@@ -93,6 +93,7 @@ parser.add_argument('--attention-type', default='cnn', choices=['cnn', 'naive-rn
 
 parser.add_argument('--attention-loss', type='bool', default=False)
 parser.add_argument('--adversarial-loss', type='bool', default=False)
+parser.add_argument('--adversarial-lr', type=float, default=0.0002, metavar='N', help='initial learning rate')
 
 
 args = parser.parse_args()
@@ -153,7 +154,9 @@ def main():
             ('-lr_' + str(args.lr)) + 
             ('-batch_' + str(args.batch_size)) + 
             ('-attention_' + str(args.attention_type)) +
-            ('-attention_loss' + str(args.attention_loss))
+            ('-attention_loss' + str(args.attention_loss))+
+            ('-adversarial_loss' + str(args.adversarial_loss))+
+            ('-adversarial_lr' + str(args.adversarial_lr))
         )
     ))
 
@@ -230,7 +233,7 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
             from nscl.nn.reasoning_v1.losses import AdversarialLoss
             adversarial_loss = AdversarialLoss()
             adversarial_parameters = filter(lambda x: x.requires_grad, adversary.parameters())
-            adversarial_optimizer = AdamW(adversarial_parameters, args.lr)
+            adversarial_optimizer = AdamW(adversarial_parameters, args.adversarial_lr)
             adversarial_trainer = {'adversary':adversary,'adversarial_optimizer':adversarial_optimizer,'adversarial_loss':adversarial_loss}
 
 

@@ -250,7 +250,7 @@ class AdversarialLoss(MultitaskLossBase):
         
     def forward(self, f_sng, adversary):
 
-        total_loss = torch.tensor(0,dtype=float,device=f_sng[0][1].device)
+        total_loss = torch.tensor(0,dtype=torch.float,device=f_sng[0][1].device)
 
         for scene in f_sng:
             objects = scene[1]

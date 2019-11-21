@@ -39,9 +39,9 @@ class SceneGraph(nn.Module):
 
 
 
-        self.object_coord_fuse = nn.Sequential(nn.Conv2d(feature_dim+2,feature_dim,kernel_size=1),nn.ReLU(True))
+        self.object_coord_fuse = nn.Sequential(nn.Conv2d(feature_dim+2,feature_dim,kernel_size=1),nn.ReLU())
         
-        self.object_features_layer = nn.Sequential(nn.Linear(feature_dim,output_dims[1]),nn.ReLU(True))
+        self.object_features_layer = nn.Sequential(nn.Linear(feature_dim,output_dims[1]),nn.ReLU())
         self.obj1_linear = nn.Linear(output_dims[1],output_dims[1])
         self.obj2_linear = nn.Linear(output_dims[1],output_dims[1])
         self.reset_parameters()
@@ -349,7 +349,7 @@ class NaiveRNNSceneGraphGlobalBatched(NaiveRNNSceneGraphBatchedBase):
 
         self.maxpool = nn.MaxPool2d((16,24))
 
-        self.object_fc = nn.Sequential(nn.Linear(2*self.feature_dim,self.output_dims[1]),nn.ReLU(True))
+        self.object_fc = nn.Sequential(nn.Linear(2*self.feature_dim,self.output_dims[1]),nn.ReLU())
         
 
     def forward(self, input, objects, objects_length):
