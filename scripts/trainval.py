@@ -41,7 +41,7 @@ parser.add_argument('--configs', default='', type='kv', metavar='CFGS')
 parser.add_argument('--expr', default=None, metavar='DIR', help='experiment name')
 parser.add_argument('--training-target', required=True, choices=['derender', 'parser', 'all'])
 parser.add_argument('--training-visual-modules', default='all', choices=['none', 'object', 'relation', 'all'])
-parser.add_argument('--curriculum', default='all', choices=['off', 'scene', 'program', 'all','restricted','accelerated'])
+parser.add_argument('--curriculum', default='all', choices=['off', 'scene', 'program', 'all','restricted','accelerated','intermediate'])
 parser.add_argument('--question-transform', default='off', choices=['off', 'basic', 'parserv1-groundtruth', 'parserv1-candidates', 'parserv1-candidates-executed'])
 parser.add_argument('--concept-quantization-json', default=None, metavar='FILE')
 
@@ -297,15 +297,26 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
         curriculum_strategy = [
             (0, 3, 4),
             (5, 3, 6),
-            (10, 3, 8),
-            (15, 4, 8),
-            (20, 4, 12),
-            (25, 5, 12),
-            (30, 6, 12),
-            (35, 7, 16),
-            (40, 8, 20),
-            (45, 9, 22),
-            (50, 10, 25),
+            (10, 4, 8),
+            (15, 5, 12),
+            (20, 6, 12),
+            (25, 7, 16),
+            (30, 8, 20),
+            (35, 9, 22),
+            (40, 10, 25),
+            (1e9, None, None)
+        ]
+    elif args.curriculum=='intermediate':
+        curriculum_strategy = [
+            (0, 3, 4),
+            (10, 3, 6),
+            (20, 4, 8),
+            (30, 5, 12),
+            (40, 6, 12),
+            (50, 7, 16),
+            (60, 8, 20),
+            (70, 9, 22),
+            (80, 10, 25),
             (1e9, None, None)
         ]
     else:
@@ -360,9 +371,9 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
             for si, s in enumerate(curriculum_strategy):
                 if curriculum_strategy[si][0] < epoch <= curriculum_strategy[si + 1][0]:
                     max_scene_size, max_program_size = s[1:]
-                    if args.curriculum in ('scene', 'all','restricted','accelerated'):
+                    if args.curriculum in ('scene', 'all','restricted','accelerated','intermediate'):
                         this_train_dataset = this_train_dataset.filter_scene_size(max_scene_size)
-                    if args.curriculum in ('program', 'all','restricted','accelerated'):
+                    if args.curriculum in ('program', 'all','restricted','accelerated','intermediate'):
                         this_train_dataset = this_train_dataset.filter_program_size_raw(max_program_size)
                     logger.critical('Building the data loader. Curriculum = {}/{}, length = {}.'.format(*s[1:], len(this_train_dataset)))
                     break
@@ -425,7 +436,8 @@ def train_epoch(epoch, trainer, train_dataloader, meters,adversarial_trainer=Non
     with tqdm_pbar(total=nr_iters) as pbar:
         for i in range(nr_iters):
             feed_dict = next(train_iter)
-            feed_dict['adversary'] = adversary
+            if adversarial_trainer is not None:
+                feed_dict['adversary'] = adversary
 
 
             if args.use_gpu:
@@ -436,13 +448,15 @@ def train_epoch(epoch, trainer, train_dataloader, meters,adversarial_trainer=Non
 
             loss, monitors, output_dict, extra_info = trainer.step(feed_dict, cast_tensor=False)
             if adversarial_trainer is not None:
-                adversary.zero_grad()
-                f_sng = output_dict['scene_graph']
-                f_sng = [[x[0],x[1].detach(),x[2]] for x in f_sng]
-                l = -1 * adversarial_loss(f_sng,adversary)
-                print(l)
-                l.backward()
-                adversarial_optimizer.step()
+                num_adversarial_steps = 1
+                for l in range(num_adversarial_steps):
+                    adversary.zero_grad()
+                    f_sng = output_dict['scene_graph']
+                    f_sng = [[x[0],x[1].detach(),x[2]] for x in f_sng]
+                    l = -1 * adversarial_loss(f_sng,adversary)
+                    print(l)
+                    l.backward()
+                    adversarial_optimizer.step()
 
 
                 

@@ -85,7 +85,7 @@ class Model(ReasoningV1Model):
             #if configs.train.scene_add_supervision:
             #    loss = loss + monitors['loss/scene']
             if self.use_adversarial_loss:
-                w=0.1
+                w=0.01
                 loss += w*self.adversarial_loss(f_sng,feed_dict.adversary)
                 outputs['scene_graph'] = f_sng
             return loss, monitors, outputs

@@ -234,8 +234,11 @@ class ProgramExecutorContext(nn.Module):
             return -10 + 20 * (self.count(selected1) == self.count(selected2)).float()
 
     def query(self, selected, group, attribute_groups):
+        val, index = torch.max(selected,0)
+
         mask, word2idx = self._get_attribute_query_masks(attribute_groups)
-        mask = (mask * selected.unsqueeze(-1).unsqueeze(0)).sum(dim=-2)
+        #mask = (mask * selected.unsqueeze(-1).unsqueeze(0)).sum(dim=-2)
+        mask = (val*mask[0][index]).unsqueeze(0)
         if torch.is_tensor(group):
             return (mask * group.unsqueeze(1)).sum(dim=0), word2idx
 
