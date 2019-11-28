@@ -310,7 +310,7 @@ def visualize_attention_per_object():
             #image_filtered = torch_image*upsampled_attention
 
             
-            image_filtered = torch.where(upsampled_attention>0.1,mask,torch_image)
+            image_filtered = torch.where(upsampled_attention>0.2,mask,torch_image)
             #attention_image = transforms.ToPILImage()(upsampled_attention)
             #pil_image.paste(attention_image,(0,0))
             object_image = transforms.ToPILImage()(image_filtered)
@@ -524,9 +524,13 @@ def visualize_scene_graph():
             object_attention = torch.unsqueeze(torch.unsqueeze(attention[0,j,:].cpu(),dim=0),dim=0)
 
             upsampled_attention = torch.squeeze(nn.functional.interpolate(object_attention,size=(320,480)))
+            #print(upsampled_attention)
             
             mask=torch.zeros(upsampled_attention.size())
-            image_filtered = torch.where(upsampled_attention>0.01,mask,torch_image)
+            image_filtered = torch.where(upsampled_attention>0.2,mask,torch_image)
+            #image_filtered = upsampled_attention*torch_image
+
+            #image_filtered = torch_image
         
             object_image = transforms.ToPILImage()(image_filtered)
 

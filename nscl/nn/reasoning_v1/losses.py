@@ -148,6 +148,7 @@ class QALoss(MultitaskLossBase):
             return monitors, outputs
 
         for i, (query_type, a) in enumerate(answers):
+
             j = i if question_index is None else question_index[i]
             loss_w = loss_weights[i] if loss_weights is not None else 1
             acc_w = accuracy_weights[i] if accuracy_weights is not None else 1
@@ -156,6 +157,7 @@ class QALoss(MultitaskLossBase):
             response_query_type = gdef.qtype2atype_dict[query_type]
 
             question_type = feed_dict['question_type'][j]
+
             response_question_type = gdef.qtype2atype_dict[question_type]
 
             if response_question_type != response_query_type:
@@ -169,7 +171,15 @@ class QALoss(MultitaskLossBase):
                     monitors.setdefault('loss/qa', []).append((l, loss_w))
                 continue
 
-            if response_query_type == 'word':
+
+            if question_type=='query':
+                a, p, word2idx = a
+                argmax = a.argmax(dim=-1).item()
+                idx2word = {v: k for k, v in word2idx.items()}
+                outputs['answer'].append(idx2word[argmax])
+                gt = word2idx[gt]
+                loss = lambda x, y: self._xent_loss(x,y)
+            elif response_query_type == 'word':
                 a, word2idx = a
                 argmax = a.argmax(dim=-1).item()
                 idx2word = {v: k for k, v in word2idx.items()}

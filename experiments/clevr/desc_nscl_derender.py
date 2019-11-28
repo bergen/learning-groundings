@@ -43,6 +43,11 @@ class Model(ReasoningV1Model):
         except Exception as e:
             pass
 
+        try:
+            self.anneal_rnn = args.anneal_rnn
+        except Exception as e:
+            pass
+
     def get_object_lengths(self,feed_dict):
         object_lengths = []
         scene = feed_dict['scene']
@@ -60,7 +65,10 @@ class Model(ReasoningV1Model):
 
 
         f_scene = self.resnet(feed_dict.image)
-        f_sng = self.scene_graph(f_scene, feed_dict.objects, object_lengths)
+        if self.anneal_rnn:
+            f_sng = self.scene_graph(f_scene, feed_dict.objects, object_lengths,feed_dict.epoch)
+        else:
+            f_sng = self.scene_graph(f_scene, feed_dict.objects, object_lengths)
         
         
 
@@ -69,10 +77,10 @@ class Model(ReasoningV1Model):
         outputs['buffers'] = buffers
         outputs['answer'] = answers
 
-        update_from_loss_module(monitors, outputs, self.scene_loss(
-            feed_dict, f_sng,
-            self.reasoning.embedding_attribute, self.reasoning.embedding_relation
-        ))
+        #update_from_loss_module(monitors, outputs, self.scene_loss(
+        #    feed_dict, f_sng,
+        #    self.reasoning.embedding_attribute, self.reasoning.embedding_relation
+        #))
         update_from_loss_module(monitors, outputs, self.qa_loss(feed_dict, answers))
 
         canonize_monitors(monitors)

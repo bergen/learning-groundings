@@ -400,14 +400,58 @@ class NaiveRNNSceneGraphGlobalBatched(NaiveRNNSceneGraphBatchedBase):
 
         return outputs
 
-class StructuredRNNSceneGraphBatched(NaiveRNNSceneGraphBatched):
+class StructuredRNNSceneGraphBatched(NaiveRNNSceneGraphBatchedBase):
     def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True):
         super().__init__(feature_dim, output_dims, downsample_rate)
 
         self.attention_rnn = nn.LSTM(2*feature_dim, feature_dim,batch_first=True)
         self.maxpool = nn.MaxPool2d((16,24))
 
-    def get_queries(self,fused_object_coords,batch_size,max_num_objects):
+
+    def forward(self, input, objects, objects_length, epoch):
+        object_features = input
+        
+
+        batch_size = input.size(0)
+        max_num_objects = max(objects_length)
+       
+        outputs = list()
+        #object_features has shape batch_size x 256 x 16 x 24
+        obj_coord_map = torch.unsqueeze(coord_map((object_features.size(2),object_features.size(3)),object_features.device),dim=0)
+
+        obj_coord_map_batched = obj_coord_map.repeat(batch_size,1,1,1)
+
+        scene_object_coords_batched = torch.cat((object_features,obj_coord_map_batched), dim=1)
+
+        fused_object_coords_batched = self.object_coord_fuse(scene_object_coords_batched)
+
+        queries = self.get_queries(fused_object_coords_batched, batch_size, max_num_objects,epoch)
+
+        attention_map_batched = torch.einsum("bij,bjkl -> bikl", queries,fused_object_coords_batched)
+        attention_map_batched = nn.Softmax(2)(attention_map_batched.reshape(batch_size,max_num_objects,-1)).view_as(attention_map_batched)
+        object_values_batched = torch.einsum("bijk,bljk -> bil", attention_map_batched, fused_object_coords_batched) 
+        object_representations_batched = self._norm(self.object_features_layer(object_values_batched))
+
+        object_pair_representations_batched = self.objects_to_pair_representations(object_representations_batched)
+
+
+        outputs = []
+        for i in range(batch_size):
+            num_objects = objects_length[i]
+            object_representations = torch.squeeze(object_representations_batched[i,0:num_objects,:],dim=0)
+            object_pair_representations = torch.squeeze(object_pair_representations_batched[i,0:num_objects,0:num_objects,:],dim=0).contiguous()
+            
+            outputs.append([
+                        None,
+                        object_representations,
+                        object_pair_representations
+                    ])
+
+
+        return outputs
+
+
+    def get_queries(self,fused_object_coords,batch_size,max_num_objects,epoch):
         device = fused_object_coords.device
 
         scene_representation = self.maxpool(fused_object_coords).squeeze(-1).squeeze(-1)
@@ -424,7 +468,9 @@ class StructuredRNNSceneGraphBatched(NaiveRNNSceneGraphBatched):
             query = output.view(batch_size,-1)
             attention_map_batched = torch.einsum("bj,bjkl -> bkl", query,fused_object_coords)
             attention_map_batched = nn.Softmax(1)(attention_map_batched.reshape(batch_size,-1)).view_as(attention_map_batched)
-            object_representation = torch.einsum("bjk,bljk -> bl", attention_map_batched, fused_object_coords) 
+
+            if epoch>=0:
+                object_representation = torch.einsum("bjk,bljk -> bl", attention_map_batched, fused_object_coords) 
 
             query_list.append(query)
 

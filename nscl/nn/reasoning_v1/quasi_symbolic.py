@@ -155,6 +155,9 @@ class ProgramExecutorContext(nn.Module):
             return selected
         mask = self._get_concept_groups_masks(concept_groups, 1)
         mask = torch.min(selected.unsqueeze(0), mask)
+        #mask is a list of num_objects log-probabilities. each term is the log-probability that the object has the concept
+
+
         if torch.is_tensor(group):
             return (mask * group.unsqueeze(1)).sum(dim=0)
         return mask[group]
@@ -185,6 +188,8 @@ class ProgramExecutorContext(nn.Module):
         return mask[group]
 
     def unique(self, selected):
+        #this is applied to transform type object_set to objects
+        #needs to be performed before a query
         if self.training or _test_quantize.value < InferenceQuantizationMethod.STANDARD.value:
             return jacf.general_softmax(selected, impl='standard', training=self.training)
         # trigger the greedy_max
@@ -237,12 +242,19 @@ class ProgramExecutorContext(nn.Module):
         val, index = torch.max(selected,0)
 
         mask, word2idx = self._get_attribute_query_masks(attribute_groups)
-        #mask = (mask * selected.unsqueeze(-1).unsqueeze(0)).sum(dim=-2)
-        mask = (val*mask[0][index]).unsqueeze(0)
+        #print(mask)
+        #selected is a probability distribution over objects (not log space)
+        #mask is a list consisting of num_objects probability distributions. These probability distributions are in log space.
+
+        selected = torch.log(selected)
+        mask = (mask + selected.unsqueeze(-1).unsqueeze(0))
+        mask = torch.logsumexp(mask,dim=-2)
+        #mask = (mask[0][index]).unsqueeze(0)
+        #print(mask)
         if torch.is_tensor(group):
             return (mask * group.unsqueeze(1)).sum(dim=0), word2idx
 
-        return mask[group], word2idx
+        return mask[group],val, word2idx
 
     def query_ls(self, selected, group, attribute_groups):
         """large-scale query"""
@@ -386,6 +398,8 @@ class DifferentiableReasoning(nn.Module):
             buffers.append(buffer)
             programs.append(prog)
 
+
+
             ctx = ProgramExecutorContext(self.embedding_attribute, self.embedding_relation, features, parameter_resolution=self.parameter_resolution, training=self.training)
 
             for block_id, block in enumerate(prog):
@@ -399,6 +413,7 @@ class DifferentiableReasoning(nn.Module):
                 for inp, inp_type in zip(block['inputs'], gdef.operation_signatures_dict[op][1]):
                     inp = buffer[inp]
                     if inp_type == 'object':
+                        #this is done to transform type object_set to object
                         inp = ctx.unique(inp)
                     inputs.append(inp)
 

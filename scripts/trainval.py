@@ -92,6 +92,7 @@ parser.add_argument('--attention-type', default='cnn', choices=['cnn', 'naive-rn
                                                                 'naive-rnn-global-batched','structured-rnn-batched','max-rnn-batched'])
 
 parser.add_argument('--attention-loss', type='bool', default=False)
+parser.add_argument('--anneal-rnn', type='bool', default=False)
 parser.add_argument('--adversarial-loss', type='bool', default=False)
 parser.add_argument('--adversarial-lr', type=float, default=0.0002, metavar='N', help='initial learning rate')
 
@@ -422,6 +423,7 @@ def train_epoch(epoch, trainer, train_dataloader, meters,adversarial_trainer=Non
     if nr_iters == 0:
         nr_iters = len(train_dataloader)
 
+
     if adversarial_trainer is not None:
         adversary = adversarial_trainer['adversary']
         adversarial_optimizer = adversarial_trainer['adversarial_optimizer']
@@ -436,6 +438,9 @@ def train_epoch(epoch, trainer, train_dataloader, meters,adversarial_trainer=Non
     with tqdm_pbar(total=nr_iters) as pbar:
         for i in range(nr_iters):
             feed_dict = next(train_iter)
+
+            feed_dict['epoch'] = epoch
+
             if adversarial_trainer is not None:
                 feed_dict['adversary'] = adversary
 
@@ -487,6 +492,8 @@ def validate_epoch(epoch, trainer, val_dataloader, meters, meter_prefix='validat
     end = time.time()
     with tqdm_pbar(total=len(val_dataloader)) as pbar:
         for feed_dict in val_dataloader:
+            feed_dict['epoch'] = epoch
+
             if args.use_gpu:
                 if not args.gpu_parallel:
                     feed_dict = async_copy_to(feed_dict, 0)

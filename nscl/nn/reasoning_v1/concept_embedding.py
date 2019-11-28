@@ -169,6 +169,8 @@ class ConceptEmbedding(nn.Module):
     _tau = 0.25
 
     def similarity(self, query, identifier):
+        #identifier is a concept
+        #returns a list of probabilities: prob that each object is the concept
         mappings = self.get_all_attributes()
         concept = self.get_concept(identifier)
 
@@ -179,6 +181,7 @@ class ConceptEmbedding(nn.Module):
 
         margin = self._margin
         logits = ((query_mapped * reference).sum(dim=-1) - 1 + margin) / margin / self._tau
+
 
         belong = jactorch.add_dim_as_except(concept.log_normalized_belong, logits, -1)
         logits = jactorch.logsumexp(logits + belong, dim=-1)
@@ -244,6 +247,8 @@ class ConceptEmbedding(nn.Module):
         return mapping(query)
 
     def query_attribute(self, query, identifier):
+        #identifeir is an attribute
+        #returns the log probability that 
         mapping, concepts, attr_id = self.get_concepts_by_attribute(identifier)
         query = mapping(query)
         query = query / query.norm(2, dim=-1, keepdim=True)
@@ -260,9 +265,18 @@ class ConceptEmbedding(nn.Module):
             belong_score = v.log_normalized_belong[attr_id]
             mask = mask + belong_score
 
+            #mask is a num_objects list of log probabilities: the log probability that each object satisfies the concept
+
             masks.append(mask)
             word2idx[k] = len(word2idx)
 
         masks = torch.stack(masks, dim=-1)
+        normalizing_constant = torch.logsumexp(masks,dim=1,keepdim=True)
+        #we normalize the probabiliteis for each object: each object can only satisfy a single concept
+        
+        masks = masks - normalizing_constant
+
+        
+
         return masks, word2idx
 

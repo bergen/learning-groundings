@@ -82,8 +82,11 @@ class ReasoningV1Model(nn.Module):
         self.scene_loss = vqa_losses.SceneParsingLoss(gdef.all_concepts, add_supervision=configs.train.scene_add_supervision)
         self.qa_loss = vqa_losses.QALoss(add_supervision=configs.train.qa_add_supervision)
 
-        if args.adversarial_loss:
-            self.adversarial_loss = vqa_losses.AdversarialLoss()
+        try:
+            if args.adversarial_loss:
+                self.adversarial_loss = vqa_losses.AdversarialLoss()
+        except Exception as e:
+            pass
 
     def train(self, mode=True):
         super().train(mode)
