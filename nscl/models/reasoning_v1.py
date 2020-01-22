@@ -75,7 +75,8 @@ class ReasoningV1Model(nn.Module):
         import nscl.nn.reasoning_v1.quasi_symbolic as qs
         self.reasoning = qs.DifferentiableReasoning(
             self._make_vse_concepts(configs.model.vse_large_scale, configs.model.vse_known_belong),
-            self.scene_graph.output_dims, configs.model.vse_hidden_dims
+            self.scene_graph.output_dims, configs.model.vse_hidden_dims,
+            self.args
         )
 
         import nscl.nn.reasoning_v1.losses as vqa_losses

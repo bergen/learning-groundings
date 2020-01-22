@@ -469,7 +469,7 @@ class StructuredRNNSceneGraphBatched(NaiveRNNSceneGraphBatchedBase):
             attention_map_batched = torch.einsum("bj,bjkl -> bkl", query,fused_object_coords)
             attention_map_batched = nn.Softmax(1)(attention_map_batched.reshape(batch_size,-1)).view_as(attention_map_batched)
 
-            if epoch>=0:
+            if epoch>=20:
                 object_representation = torch.einsum("bjk,bljk -> bl", attention_map_batched, fused_object_coords) 
 
             query_list.append(query)

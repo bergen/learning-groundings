@@ -133,7 +133,7 @@ class ConceptQuantizationContext(nn.Module):
 
 
 class ProgramExecutorContext(nn.Module):
-    def __init__(self, attribute_taxnomy, relation_taxnomy, features, parameter_resolution, training=True):
+    def __init__(self, attribute_taxnomy, relation_taxnomy, features, presupposition_semantics, parameter_resolution, training=True):
         super().__init__()
 
         self.features = features
@@ -147,6 +147,8 @@ class ProgramExecutorContext(nn.Module):
         self._attribute_query_masks = None
         self._attribute_query_ls_masks = None
         self._attribute_query_ls_mc_masks = None
+
+        self.presupposition_semantics = presupposition_semantics   
 
         self.train(training)
 
@@ -162,27 +164,38 @@ class ProgramExecutorContext(nn.Module):
             return (mask * group.unsqueeze(1)).sum(dim=0)
         return mask[group]
 
-    def filter_most(self, selected, group, concept_groups):
-        mask = self._get_concept_groups_masks(concept_groups, 2)
-
-        # mask[x] = \exists y \in selected, greater(y, x)
-        mask = torch.min(mask, selected.unsqueeze(-1).unsqueeze(0)).max(dim=-2)[0]
-        # -mask[x] = \forall y \in selected, less_eq(y, x)
-        mask = torch.min(selected, -mask)
-        if torch.is_tensor(group):
-            return (mask * group.unsqueeze(1)).sum(dim=0)
-        return mask[group]
 
     def relate(self, selected, group, concept_groups):
+        selected = torch.log(selected)
+        #selected is a log probability distribution over objects. Exactly one object is assumed to satisfy the conditions that produced selected 
+        #concept groups is a list of relational concepts (e.g. ['front','left','right'])
+        #group is an int, which indicates which concept from concept_groups is being used
+
         mask = self._get_concept_groups_masks(concept_groups, 2)
-        mask = (mask * selected.unsqueeze(-1).unsqueeze(0)).sum(dim=-2)
+        #mask is a num_concept_groups x num_objects x num_objects tensor. it contains, for each object pair, the log probability the object pair satisfies a certain relational concept. 
+        #the first dimension indexes the specific concept being used (e.g. 'front')
+
+        mask = (mask + selected.unsqueeze(-1).unsqueeze(0))
+        mask = torch.logsumexp(mask,dim=-2) #need to verify that this logsumexp is over correct dimension
+
         if torch.is_tensor(group):
             return (mask * group.unsqueeze(1)).sum(dim=0)
         return mask[group]
 
     def relate_ae(self, selected, group, attribute_groups):
+        selected = torch.log(selected)
+        #selected is a log probability distribution over objects. Exactly one object is assumed to satisfy the conditions that produced selected 
+        #attribute_groups is a list of attributes (e.g. ['color', 'shape'])
+        #group is an int, which indicates which attribute from attribute_groups is being used
+
+
         mask = self._get_attribute_groups_masks(attribute_groups)
-        mask = (mask * selected.unsqueeze(-1).unsqueeze(0)).sum(dim=-2)
+        #mask is a num_attribute_groups x num_objects x num_objects tensor. it contains, for each object pair, the log probability the object pair has the same attribute value (for example, the same color). 
+        #the first dimension indexes the specific attribute being used (e.g. 'color')
+
+        mask = (mask + selected.unsqueeze(-1).unsqueeze(0))
+        mask = torch.logsumexp(mask,dim=-2) #need to verify that this logsumexp is over correct dimension
+
         if torch.is_tensor(group):
             return (mask * group.unsqueeze(1)).sum(dim=0)
         return mask[group]
@@ -204,39 +217,38 @@ class ProgramExecutorContext(nn.Module):
     def exist(self, selected):
         return selected.max(dim=-1)[0]
 
-    def belong_to(self, selected1, selected2):
-        return (selected1 * selected2).sum(dim=-1)
 
     def count(self, selected):
         if self.training:
-            return torch.sigmoid(selected).sum(dim=-1)
+            return torch.exp(selected).sum(dim=-1)
         else:
             if _test_quantize.value >= InferenceQuantizationMethod.STANDARD.value:
                 return (selected > 0).float().sum()
-            return torch.sigmoid(selected).sum(dim=-1).round()
+            return torch.exp(selected).sum(dim=-1).round()
 
     _count_margin = 0.25
     _count_tau = 0.25
 
     def count_greater(self, selected1, selected2):
+        #selected1 and selected2 are tensors of length num_objects. Each is a tensor of log probabilities (not a distribution). Each number is the log probability that an object satisfies a given property
         if self.training or _test_quantize.value < InferenceQuantizationMethod.STANDARD.value:
-            a = torch.sigmoid(selected1).sum(dim=-1)
-            b = torch.sigmoid(selected2).sum(dim=-1)
+            a = torch.exp(selected1).sum(dim=-1)
+            b = torch.exp(selected2).sum(dim=-1)
 
-            return ((a - b - 1 + 2 * self._count_margin) / self._count_tau)
+            return nn.LogSigmoid()(((a - b - 1 + 2 * self._count_margin) / self._count_tau))
         else:
-            return -10 + 20 * (self.count(selected1) > self.count(selected2)).float()
+            return nn.LogSigmoid()(-10 + 20 * (self.count(selected1) > self.count(selected2)).float())
 
     def count_less(self, selected1, selected2):
         return self.count_greater(selected2, selected1)
 
     def count_equal(self, selected1, selected2):
         if self.training or _test_quantize.value < InferenceQuantizationMethod.STANDARD.value:
-            a = torch.sigmoid(selected1).sum(dim=-1)
-            b = torch.sigmoid(selected2).sum(dim=-1)
-            return ((2 * self._count_margin - (a - b).abs()) / (2 * self._count_margin) / self._count_tau)
+            a = torch.exp(selected1).sum(dim=-1)
+            b = torch.exp(selected2).sum(dim=-1)
+            return nn.LogSigmoid()(((2 * self._count_margin - (a - b).abs()) / (2 * self._count_margin) / self._count_tau))
         else:
-            return -10 + 20 * (self.count(selected1) == self.count(selected2)).float()
+            return nn.LogSigmoid()(-10 + 20 * (self.count(selected1) == self.count(selected2)).float())
 
     def query(self, selected, group, attribute_groups):
         val, index = torch.max(selected,0)
@@ -247,41 +259,28 @@ class ProgramExecutorContext(nn.Module):
         #mask is a list consisting of num_objects probability distributions. These probability distributions are in log space.
 
         selected = torch.log(selected)
-        mask = (mask + selected.unsqueeze(-1).unsqueeze(0))
-        mask = torch.logsumexp(mask,dim=-2)
-        #mask = (mask[0][index]).unsqueeze(0)
+        
+        if self.presupposition_semantics:
+            mask = (mask[0][index]).unsqueeze(0)
+        else:
+            mask = (mask + selected.unsqueeze(-1).unsqueeze(0))
+            mask = torch.logsumexp(mask,dim=-2)
+        #
         #print(mask)
         if torch.is_tensor(group):
             return (mask * group.unsqueeze(1)).sum(dim=0), word2idx
 
         return mask[group],val, word2idx
 
-    def query_ls(self, selected, group, attribute_groups):
-        """large-scale query"""
-        mask, word2idx = self._get_attribute_query_ls_masks(attribute_groups)
-        mask = (mask * selected.unsqueeze(-1).unsqueeze(0)).sum(dim=-2)
-        if torch.is_tensor(group):
-            return (mask * group.unsqueeze(1)).sum(dim=0), word2idx
-        return mask[group], word2idx
 
-    def query_ls_mc(self, selected, group, attribute_groups, concepts):
-        mask, word2idx = self._get_attribute_query_ls_mc_masks(attribute_groups, concepts)
-        mask = (mask * selected.unsqueeze(-1).unsqueeze(0)).sum(dim=-2)
-        if torch.is_tensor(group):
-            return (mask * group.unsqueeze(1)).sum(dim=0), word2idx
-        return mask[group], word2idx
-
-    def query_is(self, selected, group, concept_groups):
-        mask = self._get_concept_groups_masks(concept_groups, 1)
-        mask = (mask * selected.unsqueeze(0)).sum(dim=-1)
-        if torch.is_tensor(group):
-            return (mask * group.unsqueeze(1)).sum(dim=0)
-        return mask[group]
 
     def query_ae(self, selected1, selected2, group, attribute_groups):
+        selected1 = torch.exp(selected1)
+        selected2 = torch.exp(selected2)
         mask = self._get_attribute_groups_masks(attribute_groups)
-        mask = (mask * selected1.unsqueeze(-1).unsqueeze(0)).sum(dim=-2)
-        mask = (mask * selected2.unsqueeze(0)).sum(dim=-1)
+
+        mask = (mask + selected1.unsqueeze(-1).unsqueeze(0)).sum(dim=-2)
+        mask = (mask + selected2.unsqueeze(0)).sum(dim=-1)
         if torch.is_tensor(group):
             return (mask * group.unsqueeze(1)).sum(dim=0)
         return mask[group]
@@ -328,37 +327,19 @@ class ProgramExecutorContext(nn.Module):
             self._attribute_query_masks = torch.stack(masks, dim=0), word2idx
         return self._attribute_query_masks
 
-    def _get_attribute_query_ls_masks(self, attribute_groups):
-        if self._attribute_query_ls_masks is None:
-            masks, word2idx = list(), None
-            for attribute in attribute_groups:
-                mask, this_word2idx = self.taxnomy[1].query_attribute(self.features[1], attribute)
-                masks.append(mask)
-                word2idx = this_word2idx
-
-            self._attribute_query_ls_masks = torch.stack(masks, dim=0), word2idx
-        return self._attribute_query_ls_masks
-
-    def _get_attribute_query_ls_mc_masks(self, attribute_groups, concepts):
-        if self._attribute_query_ls_mc_masks is None:
-            masks, word2idx = list(), None
-            for attribute in attribute_groups:
-                mask, this_word2idx = self.taxnomy[1].query_attribute_mc(self.features[1], attribute, concepts)
-                masks.append(mask)
-                word2idx = this_word2idx
-
-            self._attribute_query_ls_mc_masks = torch.stack(masks, dim=0), word2idx
-        return self._attribute_query_ls_mc_masks
-
-
 class DifferentiableReasoning(nn.Module):
-    def __init__(self, used_concepts, input_dims, hidden_dims, parameter_resolution='deterministic', vse_attribute_agnostic=False):
+    def __init__(self, used_concepts, input_dims, hidden_dims,args=None, parameter_resolution='deterministic', vse_attribute_agnostic=False):
         super().__init__()
 
         self.used_concepts = used_concepts
         self.input_dims = input_dims
         self.hidden_dims = hidden_dims
         self.parameter_resolution = parameter_resolution
+
+        try:
+            self.presupposition_semantics = args.presupposition_semantics
+        except Exception as e:
+            self.presupposition_semantics = False
 
         for i, nr_vars in enumerate(['attribute', 'relation']):
             if nr_vars not in self.used_concepts:
@@ -395,12 +376,15 @@ class DifferentiableReasoning(nn.Module):
         for i, (features, prog) in enumerate(zip(batch_features, progs)):
             buffer = []
 
+            #print(fd['question_raw'][i])
+            #print(prog)
+
             buffers.append(buffer)
             programs.append(prog)
 
 
 
-            ctx = ProgramExecutorContext(self.embedding_attribute, self.embedding_relation, features, parameter_resolution=self.parameter_resolution, training=self.training)
+            ctx = ProgramExecutorContext(self.embedding_attribute, self.embedding_relation, features, self.presupposition_semantics, parameter_resolution=self.parameter_resolution, training=self.training)
 
             for block_id, block in enumerate(prog):
                 op = block['op']

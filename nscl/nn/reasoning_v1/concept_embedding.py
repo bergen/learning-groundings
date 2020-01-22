@@ -184,9 +184,13 @@ class ConceptEmbedding(nn.Module):
 
 
         belong = jactorch.add_dim_as_except(concept.log_normalized_belong, logits, -1)
-        logits = jactorch.logsumexp(logits + belong, dim=-1)
+        #belong is a log probability distribution
+        belong = torch.exp(belong)
 
-        return logits
+        log_probs = torch.sum(logits * belong, -1)
+        log_probs = nn.LogSigmoid()(log_probs)
+
+        return log_probs
 
     def similarity2(self, q1, q2, identifier, _normalized=False):
         """
@@ -204,9 +208,11 @@ class ConceptEmbedding(nn.Module):
             q2 = q2 / q2.norm(2, dim=-1, keepdim=True)
 
         if not _query_assisted_same or not self.training:
+            #this is the code that runs during training. 
             margin = self._margin_cross
             logits = ((q1 * q2).sum(dim=-1) - 1 + margin) / margin / self._tau
-            return logits
+            log_probs = nn.LogSigmoid()(logits)
+            return log_probs
         else:
             margin = self._margin_cross
             logits1 = ((q1 * q2).sum(dim=-1) - 1 + margin) / margin / self._tau
@@ -235,10 +241,13 @@ class ConceptEmbedding(nn.Module):
             return torch.min(logits1, logits2)
 
     def cross_similarity(self, query, identifier):
+        #identifier is an attribute, e.g. "color"
+        #query is a tensor of object representations. a single object representation is a single vector
         mapping = self.get_attribute(identifier)
         query = mapping(query)
         query = query / query.norm(2, dim=-1, keepdim=True)
         q1, q2 = jactorch.meshgrid(query, dim=-2)
+        #q1, q2 are used as all pairs of objects
 
         return self.similarity2(q1, q2, identifier, _normalized=True)
 
@@ -261,6 +270,7 @@ class ConceptEmbedding(nn.Module):
 
             margin = self._margin
             mask = ((query * embedding).sum(dim=-1) - 1 + margin) / margin / self._tau
+
 
             belong_score = v.log_normalized_belong[attr_id]
             mask = mask + belong_score
