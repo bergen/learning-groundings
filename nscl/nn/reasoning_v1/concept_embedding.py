@@ -166,7 +166,7 @@ class ConceptEmbedding(nn.Module):
 
     _margin = 0.85
     _margin_cross = 0.5
-    _tau = 0.25
+    _tau = 0.1
 
     def similarity(self, query, identifier):
         #identifier is a concept
@@ -180,7 +180,7 @@ class ConceptEmbedding(nn.Module):
         reference = jactorch.add_dim_as_except(concept.normalized_embedding, query_mapped, -2, -1)
 
         margin = self._margin
-        logits = ((query_mapped * reference).sum(dim=-1) - 1 + margin) / margin / self._tau
+        logits = (query_mapped * reference).sum(dim=-1) / self._tau
 
 
         belong = jactorch.add_dim_as_except(concept.log_normalized_belong, logits, -1)
@@ -224,8 +224,8 @@ class ConceptEmbedding(nn.Module):
                 embedding = jactorch.add_dim_as_except(embedding, q1, -1)
 
                 margin = self._margin
-                mask1 = ((q1 * embedding).sum(dim=-1) - 1 + margin) / margin / self._tau
-                mask2 = ((q2 * embedding).sum(dim=-1) - 1 + margin) / margin / self._tau
+                mask1 = ((q1 * embedding).sum(dim=-1) - margin)  / self._tau
+                mask2 = ((q2 * embedding).sum(dim=-1) -  margin)  / self._tau
 
                 belong_score = v.normalized_belong[attr_id]
                 # TODO(Jiayuan Mao @ 08/10): this line may have numerical issue.
@@ -269,7 +269,7 @@ class ConceptEmbedding(nn.Module):
             embedding = jactorch.add_dim_as_except(embedding, query, -1)
 
             margin = self._margin
-            mask = ((query * embedding).sum(dim=-1) - 1 + margin) / margin / self._tau
+            mask = ((query * embedding).sum(dim=-1) - margin)  / self._tau
 
 
             belong_score = v.log_normalized_belong[attr_id]

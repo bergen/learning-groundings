@@ -14,6 +14,7 @@ Quasi-Symbolic Reasoning.
 """
 
 import six
+import math
 
 import torch
 import torch.nn as nn
@@ -60,76 +61,6 @@ def set_test_quantize(mode):
     _test_quantize = InferenceQuantizationMethod.from_string(mode)
 
 
-
-class ConceptQuantizationContext(nn.Module):
-    def __init__(self, attribute_taxnomy, relation_taxnomy, training=False, quasi=False):
-        """
-        Args:
-            attribute_taxnomy: attribute-level concept embeddings.
-            relation_taxnomy: relation-level concept embeddings.
-            training (bool): training mode or not.
-            quasi(bool): if False, quantize the results as 0/1.
-
-        """
-
-        super().__init__()
-
-        self.attribute_taxnomy = attribute_taxnomy
-        self.relation_taxnomy = relation_taxnomy
-        self.quasi = quasi
-
-        super().train(training)
-
-    def forward(self, f_sng):
-        batch_size = len(f_sng)
-        output_list = [dict() for i in range(batch_size)]
-
-        for i in range(batch_size):
-            f = f_sng[i][1]
-            nr_objects = f.size(0)
-
-            output_list[i]['filter'] = dict()
-            for concept in self.attribute_taxnomy.all_concepts:
-                scores = self.attribute_taxnomy.similarity(f, concept)
-                if self.quasi:
-                    output_list[i]['filter'][concept] = scores.detach().cpu().numpy()
-                else:
-                    output_list[i]['filter'][concept] = (scores > 0).nonzero().squeeze(-1).cpu().tolist()
-
-            output_list[i]['relate_ae'] = dict()
-            for attr in self.attribute_taxnomy.all_attributes:
-                cross_scores = self.attribute_taxnomy.cross_similarity(f, attr)
-                if _apply_self_mask['relate_ae']:
-                    cross_scores = do_apply_self_mask(cross_scores)
-                if self.quasi:
-                    output_list[i]['relate_ae'][attr] = cross_scores.detach().cpu().numpy()
-                else:
-                    cross_scores = cross_scores > 0
-                    output_list[i]['relate_ae'][attr] = cross_scores.nonzero().cpu().tolist()
-
-            output_list[i]['query'] = dict()
-            for attr in self.attribute_taxnomy.all_attributes:
-                scores, word2idx = self.attribute_taxnomy.query_attribute(f, attr)
-                idx2word = {v: k for k, v in word2idx.items()}
-                if self.quasi:
-                    output_list[i]['query'][attr] = scores.detach().cpu().numpy(), idx2word
-                else:
-                    argmax = scores.argmax(-1)
-                    output_list[i]['query'][attr] = [idx2word[v] for v in argmax.cpu().tolist()]
-
-            f = f_sng[i][2]
-
-            output_list[i]['relate'] = dict()
-            for concept in self.relation_taxnomy.all_concepts:
-                scores = self.relation_taxnomy.similarity(f, concept)
-                if self.quasi:
-                    output_list[i]['relate'][concept] = scores.detach().cpu().numpy()
-                else:
-                    output_list[i]['relate'][concept] = (scores > 0).nonzero().cpu().tolist()
-
-            output_list[i]['nr_objects'] = nr_objects
-
-        return output_list
 
 
 class ProgramExecutorContext(nn.Module):
@@ -215,6 +146,7 @@ class ProgramExecutorContext(nn.Module):
         return torch.max(selected1, selected2)
 
     def exist(self, selected):
+        #print(selected)
         return selected.max(dim=-1)[0]
 
 
@@ -222,8 +154,8 @@ class ProgramExecutorContext(nn.Module):
         if self.training:
             return torch.exp(selected).sum(dim=-1)
         else:
-            if _test_quantize.value >= InferenceQuantizationMethod.STANDARD.value:
-                return (selected > 0).float().sum()
+            #if _test_quantize.value >= InferenceQuantizationMethod.STANDARD.value:
+            #    return (selected > math.log(0.5)).float().sum()
             return torch.exp(selected).sum(dim=-1).round()
 
     _count_margin = 0.25
@@ -237,7 +169,7 @@ class ProgramExecutorContext(nn.Module):
 
             return nn.LogSigmoid()(((a - b - 1 + 2 * self._count_margin) / self._count_tau))
         else:
-            return nn.LogSigmoid()(-10 + 20 * (self.count(selected1) > self.count(selected2)).float())
+            return nn.LogSigmoid()(-10 + 20 * (self.count(selected1) > self.count(selected2)).float()) #this is probably wrong
 
     def count_less(self, selected1, selected2):
         return self.count_greater(selected2, selected1)
@@ -248,7 +180,7 @@ class ProgramExecutorContext(nn.Module):
             b = torch.exp(selected2).sum(dim=-1)
             return nn.LogSigmoid()(((2 * self._count_margin - (a - b).abs()) / (2 * self._count_margin) / self._count_tau))
         else:
-            return nn.LogSigmoid()(-10 + 20 * (self.count(selected1) == self.count(selected2)).float())
+            return nn.LogSigmoid()(-10 + 20 * (self.count(selected1) == self.count(selected2)).float()) #this is probably wrong
 
     def query(self, selected, group, attribute_groups):
         val, index = torch.max(selected,0)
@@ -390,7 +322,7 @@ class DifferentiableReasoning(nn.Module):
                 op = block['op']
 
                 if op == 'scene':
-                    buffer.append(10 + torch.zeros(features[1].size(0), dtype=torch.float, device=features[1].device))
+                    buffer.append(torch.zeros(features[1].size(0), dtype=torch.float, device=features[1].device))
                     continue
 
                 inputs = []
@@ -406,7 +338,7 @@ class DifferentiableReasoning(nn.Module):
                 if op == 'filter':
                     buffer.append(ctx.filter(*inputs, block['concept_idx'], block['concept_values']))
                 elif op == 'filter_scene':
-                    inputs = [10 + torch.zeros(features[1].size(0), dtype=torch.float, device=features[1].device)]
+                    inputs = [torch.zeros(features[1].size(0), dtype=torch.float, device=features[1].device)]
                     buffer.append(ctx.filter(*inputs, block['concept_idx'], block['concept_values']))
                 elif op == 'filter_most':
                     buffer.append(ctx.filter_most(*inputs, block['relational_concept_idx'], block['relational_concept_values']))
@@ -431,6 +363,7 @@ class DifferentiableReasoning(nn.Module):
                     elif op == 'query_attribute_equal':
                         buffer.append(ctx.query_ae(*inputs, block['attribute_idx'], block['attribute_values']))
                     elif op == 'exist':
+                        #print(prog)
                         buffer.append(ctx.exist(*inputs))
                     elif op == 'belong_to':
                         buffer.append(ctx.belong_to(*inputs))

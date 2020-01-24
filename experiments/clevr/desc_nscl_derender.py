@@ -87,6 +87,7 @@ class Model(ReasoningV1Model):
 
         if self.training:
             loss = monitors['loss/qa']
+
             if self.attention_loss:
                 attention = self.scene_graph.compute_attention(f_scene, feed_dict.objects, object_lengths)
                 loss += self.compute_attention_loss(attention)

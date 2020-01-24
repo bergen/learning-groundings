@@ -9,6 +9,7 @@
 # Distributed under terms of the MIT license.
 
 import os
+import math
 import torch
 import torch.nn.functional as F
 
@@ -187,7 +188,7 @@ class QALoss(MultitaskLossBase):
                 gt = word2idx[gt]
                 loss = self._xent_loss
             elif response_query_type == 'bool':
-                argmax = int((a > 0).item())
+                argmax = int((a > math.log(0.5)).item())
                 outputs['answer'].append(argmax)
                 gt = int(gt)
                 loss = self._bce_loss
