@@ -164,7 +164,7 @@ class ConceptEmbedding(nn.Module):
     def get_concepts_by_attribute(self, identifier):
         return self.get_attribute(identifier), self.get_all_concepts(), self.attribute2id[identifier]
 
-    _margin = 0.85
+    _margin = 0.2
     _margin_cross = 0.5
     _tau = 0.1
 
@@ -180,7 +180,7 @@ class ConceptEmbedding(nn.Module):
         reference = jactorch.add_dim_as_except(concept.normalized_embedding, query_mapped, -2, -1)
 
         margin = self._margin
-        logits = (query_mapped * reference).sum(dim=-1) / self._tau
+        logits = ((query_mapped * reference).sum(dim=-1) - margin)/ self._tau
 
 
         belong = jactorch.add_dim_as_except(concept.log_normalized_belong, logits, -1)
@@ -210,7 +210,7 @@ class ConceptEmbedding(nn.Module):
         if not _query_assisted_same or not self.training:
             #this is the code that runs during training. 
             margin = self._margin_cross
-            logits = ((q1 * q2).sum(dim=-1) - 1 + margin) / margin / self._tau
+            logits = ((q1 * q2).sum(dim=-1)) / self._tau
             log_probs = nn.LogSigmoid()(logits)
             return log_probs
         else:

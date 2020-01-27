@@ -163,24 +163,26 @@ class ProgramExecutorContext(nn.Module):
 
     def count_greater(self, selected1, selected2):
         #selected1 and selected2 are tensors of length num_objects. Each is a tensor of log probabilities (not a distribution). Each number is the log probability that an object satisfies a given property
-        if self.training or _test_quantize.value < InferenceQuantizationMethod.STANDARD.value:
-            a = torch.exp(selected1).sum(dim=-1)
-            b = torch.exp(selected2).sum(dim=-1)
+        a = torch.exp(selected1).sum(dim=-1)
+        b = torch.exp(selected2).sum(dim=-1)
 
-            return nn.LogSigmoid()(((a - b - 1 + 2 * self._count_margin) / self._count_tau))
+        if self.training or _test_quantize.value < InferenceQuantizationMethod.STANDARD.value:
+            return nn.LogSigmoid()(((a - b + self._count_margin) / self._count_tau))
         else:
-            return nn.LogSigmoid()(-10 + 20 * (self.count(selected1) > self.count(selected2)).float()) #this is probably wrong
+            return nn.LogSigmoid()(((a - b + self._count_margin) / self._count_tau))
+        #else:
+        #    return nn.LogSigmoid()(-10 + 20 * (self.count(selected1) > self.count(selected2)).float()) #this is probably wrong
 
     def count_less(self, selected1, selected2):
         return self.count_greater(selected2, selected1)
 
     def count_equal(self, selected1, selected2):
+        a = torch.exp(selected1).sum(dim=-1)
+        b = torch.exp(selected2).sum(dim=-1)
         if self.training or _test_quantize.value < InferenceQuantizationMethod.STANDARD.value:
-            a = torch.exp(selected1).sum(dim=-1)
-            b = torch.exp(selected2).sum(dim=-1)
-            return nn.LogSigmoid()(((2 * self._count_margin - (a - b).abs()) / (2 * self._count_margin) / self._count_tau))
+            return nn.LogSigmoid()(((self._count_margin - (a - b).abs()) / (self._count_margin) / self._count_tau))
         else:
-            return nn.LogSigmoid()(-10 + 20 * (self.count(selected1) == self.count(selected2)).float()) #this is probably wrong
+            return nn.LogSigmoid()(((self._count_margin - (a - b).abs()) / (self._count_margin) / self._count_tau))
 
     def query(self, selected, group, attribute_groups):
         val, index = torch.max(selected,0)
