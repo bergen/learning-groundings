@@ -60,6 +60,11 @@ parser.add_argument('--resume', type='checked_file', default=None, metavar='FILE
 parser.add_argument('--attention-type', default='cnn', choices=['cnn', 'naive-rnn', 'naive-rnn-batched',
                                                                 'naive-rnn-global-batched','structured-rnn-batched','max-rnn-batched'])
 
+parser.add_argument('--attention-loss', type='bool', default=False)
+parser.add_argument('--anneal-rnn', type='bool', default=False)
+parser.add_argument('--adversarial-loss', type='bool', default=False)
+parser.add_argument('--adversarial-lr', type=float, default=0.0002, metavar='N', help='initial learning rate')
+parser.add_argument('--presupposition-semantics', type='bool', default=False)
 
 args = parser.parse_args()
 
@@ -527,7 +532,7 @@ def visualize_scene_graph():
             #print(upsampled_attention)
             
             mask=torch.zeros(upsampled_attention.size())
-            image_filtered = torch.where(upsampled_attention>0.2,mask,torch_image)
+            image_filtered = torch.where(upsampled_attention>0.1,mask,torch_image)
             #image_filtered = upsampled_attention*torch_image
 
             #image_filtered = torch_image

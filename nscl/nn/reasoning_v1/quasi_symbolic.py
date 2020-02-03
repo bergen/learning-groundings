@@ -391,8 +391,8 @@ class DifferentiableReasoning(nn.Module):
         return programs, buffers, result
 
     def inference_query(self, features, one_hot, query_type):
-        ctx = ProgramExecutorContext(self.embedding_attribute, self.embedding_relation, features, parameter_resolution=self.parameter_resolution, training=self.training)
-        output, d = ctx.query(one_hot,0,query_type)
+        ctx = ProgramExecutorContext(self.embedding_attribute, self.embedding_relation, features, self.presupposition_semantics, parameter_resolution=self.parameter_resolution, training=self.training)
+        output, val, d = ctx.query(one_hot,0,query_type)
         m = int(torch.argmax(output))
         reverse_d = dict([(d[k],k) for k in d.keys()])
         return reverse_d[m]
