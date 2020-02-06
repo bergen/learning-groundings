@@ -188,7 +188,7 @@ class QALoss(MultitaskLossBase):
                 gt = word2idx[gt]
                 loss = self._xent_loss
             elif response_query_type == 'bool':
-                argmax = int((a > math.log(0.3)).item())
+                argmax = int((a > math.log(0.5)).item())
                 outputs['answer'].append(argmax)
                 gt = int(gt)
                 loss = self._bce_loss

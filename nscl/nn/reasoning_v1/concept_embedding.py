@@ -112,6 +112,9 @@ class ConceptEmbedding(nn.Module):
         self.attribute_operators = nn.Module()
         self.concept_embeddings = nn.Module()
 
+        self.margin = nn.Parameter(torch.tensor(0.0, requires_grad=False))
+        self.tau = nn.Parameter(torch.tensor(0.1, requires_grad=False))
+
     @property
     def nr_attributes(self):
         return len(self.all_attributes)
@@ -164,31 +167,34 @@ class ConceptEmbedding(nn.Module):
     def get_concepts_by_attribute(self, identifier):
         return self.get_attribute(identifier), self.get_all_concepts(), self.attribute2id[identifier]
 
-    _margin = 0
+    #_margin = 0
     _margin_cross = 0.5
-    _tau = 0.1
+    #_tau = 0.1
 
     def similarity(self, query, identifier):
         #identifier is a concept
-        #returns a list of probabilities: prob that each object is the concept
-        mappings = self.get_all_attributes()
+        #returns a list of log probabilities: prob that each object is the concept
+        
+        attributes = self.all_attributes
         concept = self.get_concept(identifier)
+        
 
-        # shape: [batch, attributes, channel] or [attributes, channel]
-        query_mapped = torch.stack([m(query) for m in mappings], dim=-2)
-        query_mapped = query_mapped / query_mapped.norm(2, dim=-1, keepdim=True)
-        reference = jactorch.add_dim_as_except(concept.normalized_embedding, query_mapped, -2, -1)
+        log_probs = []
 
-        margin = self._margin
-        logits = ((query_mapped * reference).sum(dim=-1) + margin)/ self._tau
+        for a in attributes:
+            prob, word2ix = self.query_attribute(query,a)
+            concept_index = word2ix[identifier]
+            log_prob = prob[:,concept_index]
+            log_probs.append(log_prob)
 
+        
+        log_probs = torch.stack(log_probs,dim=-1)
 
-        belong = jactorch.add_dim_as_except(concept.log_normalized_belong, logits, -1)
+        belong = jactorch.add_dim_as_except(concept.log_normalized_belong, log_probs, -1)
         #belong is a log probability distribution
-        belong = torch.exp(belong)
 
-        log_probs = torch.sum(logits * belong, -1)
-        log_probs = nn.LogSigmoid()(log_probs)
+        log_probs = torch.logsumexp(log_probs + belong, dim=-1)
+        
 
         return log_probs
 
@@ -213,32 +219,8 @@ class ConceptEmbedding(nn.Module):
             logits = ((q1 * q2).sum(dim=-1)) / self._tau
             log_probs = nn.LogSigmoid()(logits)
             return log_probs
-        else:
-            margin = self._margin_cross
-            logits1 = ((q1 * q2).sum(dim=-1) - 1 + margin) / margin / self._tau
+        
 
-            _, concepts, attr_id = self.get_concepts_by_attribute(identifier)
-            masks = []
-            for k, v in concepts:
-                embedding = v.normalized_embedding[attr_id]
-                embedding = jactorch.add_dim_as_except(embedding, q1, -1)
-
-                margin = self._margin
-                mask1 = ((q1 * embedding).sum(dim=-1) - margin)  / self._tau
-                mask2 = ((q2 * embedding).sum(dim=-1) -  margin)  / self._tau
-
-                belong_score = v.normalized_belong[attr_id]
-                # TODO(Jiayuan Mao @ 08/10): this line may have numerical issue.
-                mask = logits_or(
-                    logits_and(mask1, mask2),
-                    logits_and(-mask1, -mask2),
-                ) * belong_score
-
-                masks.append(mask)
-            logits2 = torch.stack(masks, dim=-1).sum(dim=-1)
-
-            # TODO(Jiayuan Mao @ 08/09): should we take the average here? or just use the logits2?
-            return torch.min(logits1, logits2)
 
     def cross_similarity(self, query, identifier):
         #identifier is an attribute, e.g. "color"
@@ -256,20 +238,21 @@ class ConceptEmbedding(nn.Module):
         return mapping(query)
 
     def query_attribute(self, query, identifier):
-        #identifeir is an attribute
-        #returns the log probability that 
+        #query is num_objs x obj_rep_size
+        #identifier is an attribute
+        #returns a log probability distribution over concepts, for each object (which concept is the answer to the query, for each object)
         mapping, concepts, attr_id = self.get_concepts_by_attribute(identifier)
         query = mapping(query)
         query = query / query.norm(2, dim=-1, keepdim=True)
 
         word2idx = {}
         masks = []
-        for k, v in concepts.items():
+        for k, v in concepts.items(): 
             embedding = v.normalized_embedding[attr_id]
             embedding = jactorch.add_dim_as_except(embedding, query, -1)
 
-            margin = self._margin
-            mask = ((query * embedding).sum(dim=-1) - margin)  / self._tau
+            mask = ((query * embedding).sum(dim=-1) + self.margin)/self.tau
+            #mask is 1xnum_objs
 
 
             belong_score = v.log_normalized_belong[attr_id]
@@ -282,7 +265,7 @@ class ConceptEmbedding(nn.Module):
 
         masks = torch.stack(masks, dim=-1)
         normalizing_constant = torch.logsumexp(masks,dim=1,keepdim=True)
-        #we normalize the probabiliteis for each object: each object can only satisfy a single concept
+        #we normalize the probabilities for each object: each object can only satisfy a single concept
         
         masks = masks - normalizing_constant
 
