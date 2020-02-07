@@ -177,26 +177,18 @@ class ConceptEmbedding(nn.Module):
         
         attributes = self.all_attributes
         concept = self.get_concept(identifier)
+        attribute_index = concept.belong.argmax(-1).item()
         
+        prob, word2ix = self.query_attribute(query,attributes[attribute_index])
 
-        log_probs = []
 
-        for a in attributes:
-            prob, word2ix = self.query_attribute(query,a)
-            concept_index = word2ix[identifier]
-            log_prob = prob[:,concept_index]
-            log_probs.append(log_prob)
+        concept_index = word2ix[identifier]
+
+        log_prob = prob[:,concept_index]
+
 
         
-        log_probs = torch.stack(log_probs,dim=-1)
-
-        belong = jactorch.add_dim_as_except(concept.log_normalized_belong, log_probs, -1)
-        #belong is a log probability distribution
-
-        log_probs = torch.logsumexp(log_probs + belong, dim=-1)
-        
-
-        return log_probs
+        return log_prob
 
     def similarity2(self, q1, q2, identifier, _normalized=False):
         """
@@ -245,18 +237,26 @@ class ConceptEmbedding(nn.Module):
         query = mapping(query)
         query = query / query.norm(2, dim=-1, keepdim=True)
 
+        num_objs = query.size(0)
+
         word2idx = {}
         masks = []
         for k, v in concepts.items(): 
-            embedding = v.normalized_embedding[attr_id]
-            embedding = jactorch.add_dim_as_except(embedding, query, -1)
-
-            mask = ((query * embedding).sum(dim=-1) + self.margin)/self.tau
-            #mask is 1xnum_objs
-
-
             belong_score = v.log_normalized_belong[attr_id]
-            mask = mask + belong_score
+            if belong_score < -50: #this concept does not belong to this attribute
+                mask = -100.0*torch.ones((num_objs,),dtype=torch.float32).to(query.device)
+
+            else:
+
+                embedding = v.normalized_embedding[attr_id]
+                embedding = jactorch.add_dim_as_except(embedding, query, -1)
+
+                mask = ((query * embedding).sum(dim=-1) + self.margin)/self.tau
+                #mask is 1xnum_objs
+
+
+            
+                #mask = mask + belong_score
 
             #mask is a num_objects list of log probabilities: the log probability that each object satisfies the concept
 

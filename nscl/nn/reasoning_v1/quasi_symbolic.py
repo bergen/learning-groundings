@@ -270,6 +270,7 @@ class DifferentiableReasoning(nn.Module):
         self.hidden_dims = hidden_dims
         self.parameter_resolution = parameter_resolution
 
+
         try:
             self.presupposition_semantics = args.presupposition_semantics
         except Exception as e:

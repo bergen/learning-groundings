@@ -31,7 +31,7 @@ def make_reasoning_v1_configs():
     configs.model.sg_dims = [None, 256, 256]
 
     # model ocnfigs for visual-semantic embeddings
-    configs.model.vse_known_belong = False
+    configs.model.vse_known_belong = True
     configs.model.vse_large_scale = False
     configs.model.vse_ls_load_concept_embeddings = False
     configs.model.vse_hidden_dims = [None, 64, 64]
