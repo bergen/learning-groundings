@@ -127,9 +127,14 @@ class SceneParsingLoss(MultitaskLossBase):
 
 
 class QALoss(MultitaskLossBase):
-    def __init__(self, add_supervision):
+    def __init__(self, add_supervision,args=None):
         super().__init__()
         self.add_supervision = add_supervision
+
+        try:
+            self.presupposition_semantics = args.presupposition_semantics
+        except Exception as e:
+            self.presupposition_semantics = False
 
     def forward(self, feed_dict, answers, question_index=None, loss_weights=None, accuracy_weights=None):
         """
@@ -179,7 +184,10 @@ class QALoss(MultitaskLossBase):
                 idx2word = {v: k for k, v in word2idx.items()}
                 outputs['answer'].append(idx2word[argmax])
                 gt = word2idx[gt]
-                loss = lambda x, y: self._xent_loss(x,y)
+                if self.presupposition_semantics:
+                    loss = lambda x, y: self._xent_loss(x,y) - torch.log(p)
+                else:
+                    loss = lambda x, y: self._xent_loss(x,y) 
             elif response_query_type == 'word':
                 a, word2idx = a
                 argmax = a.argmax(dim=-1).item()

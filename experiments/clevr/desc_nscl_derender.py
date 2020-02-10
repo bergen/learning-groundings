@@ -110,7 +110,11 @@ class Model(ReasoningV1Model):
         feed_dict = GView(feed_dict)
 
         f_scene = self.resnet(feed_dict.image)
-        f_sng = self.scene_graph(f_scene, feed_dict.objects, object_lengths)
+
+        if self.anneal_rnn:
+            f_sng = self.scene_graph(f_scene, feed_dict.objects, object_lengths,60)
+        else:
+            f_sng = self.scene_graph(f_scene, feed_dict.objects, object_lengths)
         
         
         return f_sng
@@ -121,7 +125,10 @@ class Model(ReasoningV1Model):
         feed_dict = GView(feed_dict)
 
         f_scene = self.resnet(feed_dict.image)
-        attention = self.scene_graph.compute_attention(f_scene,feed_dict.objects, object_lengths)
+        if self.anneal_rnn:
+            attention = self.scene_graph.compute_attention(f_scene,feed_dict.objects, object_lengths,60)
+        else:
+            attention = self.scene_graph.compute_attention(f_scene,feed_dict.objects, object_lengths)
 
         return attention
 

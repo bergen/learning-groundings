@@ -81,7 +81,11 @@ class ReasoningV1Model(nn.Module):
 
         import nscl.nn.reasoning_v1.losses as vqa_losses
         self.scene_loss = vqa_losses.SceneParsingLoss(gdef.all_concepts, add_supervision=configs.train.scene_add_supervision)
-        self.qa_loss = vqa_losses.QALoss(add_supervision=configs.train.qa_add_supervision)
+
+        try:
+            self.qa_loss = vqa_losses.QALoss(add_supervision=configs.train.qa_add_supervision, args=args)
+        except:
+            self.qa_loss = vqa_losses.QALoss(add_supervision=configs.train.qa_add_supervision)
 
         try:
             if args.adversarial_loss:
