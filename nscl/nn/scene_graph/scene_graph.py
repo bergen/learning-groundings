@@ -258,20 +258,60 @@ class NaiveRNNSceneGraphBatched(NaiveRNNSceneGraphBatchedBase):
 
 
 class MaxRNNSceneGraphBatched(NaiveRNNSceneGraphBatched):
-    def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True):
+    def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True, args=None):
         super().__init__(feature_dim, output_dims, downsample_rate)
 
         self.attention_rnn = nn.LSTM(feature_dim, feature_dim,batch_first=True)
         self.maxpool = nn.MaxPool2d((16,24))
 
+        try:
+            self.subtractive_rnn = args.subtractive_rnn
+        except Exception as e:
+            self.subtractive_rnn = False
+
     
 
     def get_queries(self,fused_object_coords,batch_size,max_num_objects):
 
-        rnn_input = self.maxpool(fused_object_coords).squeeze(-1).squeeze(-1)
-        rnn_input = rnn_input.unsqueeze(1).expand(-1,max_num_objects,-1)
-        queries,_ = self.attention_rnn(rnn_input)
-        return queries
+        if not self.subtractive_rnn:
+            rnn_input = self.maxpool(fused_object_coords).squeeze(-1).squeeze(-1)
+            rnn_input = rnn_input.unsqueeze(1).expand(-1,max_num_objects,-1)
+            queries,_ = self.attention_rnn(rnn_input)
+            return queries
+
+        else:
+            device = fused_object_coords.device
+
+            
+
+            h,c = torch.zeros(1,batch_size,self.feature_dim).to(device), torch.zeros(1,batch_size,self.feature_dim).to(device)
+
+            query_list = []
+
+            remaining_scene = fused_object_coords
+
+            for i in range(max_num_objects):
+
+                scene_representation = self.maxpool(remaining_scene).squeeze(-1).squeeze(-1).unsqueeze(1)
+                
+                output, (h,c) = self.attention_rnn(scene_representation,(h,c))
+
+                query = output.view(batch_size,-1)
+                attention_map_batched = torch.einsum("bj,bjkl -> bkl", query,fused_object_coords)
+                attention_map_batched = nn.Softmax(1)(attention_map_batched.reshape(batch_size,-1)).view_as(attention_map_batched)
+
+                weighted_scene = torch.einsum("bjk,bljk -> bljk", attention_map_batched, remaining_scene) 
+
+                remaining_scene = remaining_scene - weighted_scene
+
+
+                query_list.append(query)
+
+
+
+            queries = torch.stack(query_list,dim=1)
+
+            return queries
 
 
     def test_batching(self,input, objects, objects_length):

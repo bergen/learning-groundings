@@ -96,6 +96,7 @@ parser.add_argument('--anneal-rnn', type='bool', default=False)
 parser.add_argument('--adversarial-loss', type='bool', default=False)
 parser.add_argument('--adversarial-lr', type=float, default=0.0002, metavar='N', help='initial learning rate')
 parser.add_argument('--presupposition-semantics', type='bool', default=False)
+parser.add_argument('--subtractive-rnn', type='bool', default=False)
 
 
 args = parser.parse_args()
