@@ -215,6 +215,15 @@ class QALoss(MultitaskLossBase):
             monitors.setdefault(key, []).append((int(gt == argmax), acc_w))
             monitors.setdefault('acc/qa', []).append((int(gt == argmax), acc_w))
 
+            if query_type=='exist':
+                if gt==1:
+                    new_key = key+'/pos'
+                    monitors.setdefault(new_key, []).append((int(gt == argmax), acc_w))
+                else:
+                    new_key = key+'/neg'
+                    monitors.setdefault(new_key, []).append((int(gt == argmax), acc_w))
+
+
             if self.training and self.add_supervision:
                 l = loss(a, gt)
                 monitors.setdefault('loss/qa/' + query_type, []).append((l, loss_w))

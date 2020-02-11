@@ -465,11 +465,26 @@ class StructuredRNNSceneGraphBatched(NaiveRNNSceneGraphBatchedBase):
 
         fused_object_coords_batched = self.object_coord_fuse(scene_object_coords_batched)
 
-        queries = self.get_queries(fused_object_coords_batched, batch_size, max_num_objects,epoch)
+        object_values_batched = self.get_queries(fused_object_coords_batched, batch_size, max_num_objects,epoch)
 
-        attention_map_batched = torch.einsum("bij,bjkl -> bikl", queries,fused_object_coords_batched)
-        attention_map_batched = nn.Softmax(2)(attention_map_batched.reshape(batch_size,max_num_objects,-1)).view_as(attention_map_batched)
-        object_values_batched = torch.einsum("bijk,bljk -> bil", attention_map_batched, fused_object_coords_batched) 
+        #attention_map_batched = torch.einsum("bij,bjkl -> bikl", queries,fused_object_coords_batched)
+
+        # object_values = []
+        # for query in queries:
+        #     reordered_object_coords = fused_object_coords.permutation(0,2,3,1)
+        #     query_for_mul = query.unsqueeze(-1).unsqueeze(1)
+        #     attention_map_batched = torch.matmul(reordered_object_coords,query_for_mul).squeeze(-1)
+        #     attention_map_batched = nn.Softmax(1)(attention_map_batched.reshape(batch_size,-1)).view_as(attention_map_batched)
+
+        #     attention_map_batched_reshape = attention_map_batched.view(batch_size,-1).unsqueeze(-1)
+        #     fused_object_coords_reshape = fused_object_coords.view(batch_size,self.feature_dim,-1)
+        #     object_representation = torch.matmul(fused_object_coords_reshape,attention_map_batched_reshape).squeeze(-1)
+        #     object_values.append(object_representation)
+        #     #attention_map_batched = nn.Softmax(2)(attention_map_batched.reshape(batch_size,max_num_objects,-1)).view_as(attention_map_batched)
+        
+        #     #object_values_batched = torch.einsum("bijk,bljk -> bil", attention_map_batched, fused_object_coords_batched) 
+        
+        # object_values_batched = torch.stack(object_values,dim=1)
         object_representations_batched = self._norm(self.object_features_layer(object_values_batched))
 
         object_pair_representations_batched = self.objects_to_pair_representations(object_representations_batched)
@@ -477,6 +492,7 @@ class StructuredRNNSceneGraphBatched(NaiveRNNSceneGraphBatchedBase):
 
         outputs = []
         for i in range(batch_size):
+            #get rid of any excess objects
             num_objects = objects_length[i]
             object_representations = torch.squeeze(object_representations_batched[i,0:num_objects,:],dim=0)
             object_pair_representations = torch.squeeze(object_pair_representations_batched[i,0:num_objects,0:num_objects,:],dim=0).contiguous()
@@ -500,25 +516,39 @@ class StructuredRNNSceneGraphBatched(NaiveRNNSceneGraphBatchedBase):
         h,c = torch.zeros(1,batch_size,self.feature_dim).to(device), torch.zeros(1,batch_size,self.feature_dim).to(device)
 
         query_list = []
+        object_list = []
 
         for i in range(max_num_objects):
             rnn_input = torch.cat((scene_representation,object_representation),dim=1).unsqueeze(1)
             output, (h,c) = self.attention_rnn(rnn_input,(h,c))
 
             query = output.view(batch_size,-1)
-            attention_map_batched = torch.einsum("bj,bjkl -> bkl", query,fused_object_coords)
+            #attention_map_batched = torch.einsum("bj,bjkl -> bkl", query,fused_object_coords)
+
+            reordered_object_coords = fused_object_coords.permute(0,2,3,1)
+            query_for_mul = query.unsqueeze(-1).unsqueeze(1)
+            attention_map_batched = torch.matmul(reordered_object_coords,query_for_mul).squeeze(-1)
+            
             attention_map_batched = nn.Softmax(1)(attention_map_batched.reshape(batch_size,-1)).view_as(attention_map_batched)
 
-            if epoch>=20:
-                object_representation = torch.einsum("bjk,bljk -> bl", attention_map_batched, fused_object_coords) 
+
+            attention_map_batched_reshape = attention_map_batched.view(batch_size,-1).unsqueeze(-1)
+            fused_object_coords_reshape = fused_object_coords.view(batch_size,self.feature_dim,-1)
+            object_representation = torch.matmul(fused_object_coords_reshape,attention_map_batched_reshape).squeeze(-1)
+            #object_representation = torch.einsum("bjk,bljk -> bl", attention_map_batched, fused_object_coords) 
+            print(object_representation.size())
 
             query_list.append(query)
+            object_list.append(object_representation)
 
 
 
         queries = torch.stack(query_list,dim=1)
+        objects = torch.stack(object_list,dim=1)
 
-        return queries
+        #return queries
+
+        return objects
 
     def compute_attention(self,input, objects, objects_length, epoch):
         object_features = input
