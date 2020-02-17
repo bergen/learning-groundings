@@ -300,7 +300,11 @@ class MaxRNNSceneGraphBatched(NaiveRNNSceneGraphBatched):
 
             
             for query in queries:
-                attention_map_batched = torch.einsum("bj,bjkl -> bkl", query,remaining_scene)
+
+                if True:
+                    attention_map_batched = torch.einsum("bj,bjkl -> bkl", query,fused_object_coords_batched)
+                else:
+                    attention_map_batched = torch.einsum("bj,bjkl -> bkl", query,remaining_scene)
                 attention_map_batched = nn.Softmax(1)(attention_map_batched.reshape(batch_size,-1)).view_as(attention_map_batched)
                 object_values = torch.einsum("bjk,bljk -> bl", attention_map_batched, remaining_scene) 
                 object_representations.append(object_values)
@@ -356,7 +360,12 @@ class MaxRNNSceneGraphBatched(NaiveRNNSceneGraphBatched):
                 output, (h,c) = self.attention_rnn(scene_representation,(h,c))
 
                 query = output.view(batch_size,-1)
-                attention_map_batched = torch.einsum("bj,bjkl -> bkl", query,remaining_scene)
+
+                if True:
+                    attention_map_batched = torch.einsum("bj,bjkl -> bkl", query,fused_object_coords)
+                else:
+                    attention_map_batched = torch.einsum("bj,bjkl -> bkl", query,remaining_scene)
+
                 attention_map_batched = nn.Softmax(1)(attention_map_batched.reshape(batch_size,-1)).view_as(attention_map_batched)
 
                 weighted_scene = torch.einsum("bjk,bljk -> bljk", attention_map_batched, remaining_scene) 
