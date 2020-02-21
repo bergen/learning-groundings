@@ -261,13 +261,27 @@ class MaxRNNSceneGraphBatched(NaiveRNNSceneGraphBatched):
     def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True, args=None):
         super().__init__(feature_dim, output_dims, downsample_rate)
 
-        self.attention_rnn = nn.LSTM(feature_dim, feature_dim,batch_first=True)
+        try:
+            self.rnn_type =  args.rnn_type
+        except Exception as e:
+            self.rnn_type = 'lstm'
+
+        if self.rnn_type=='lstm':
+            self.attention_rnn = nn.LSTM(feature_dim, feature_dim,batch_first=True)
+        elif self.rnn_type=='gru':
+            self.attention_rnn = nn.GRU(feature_dim, feature_dim,batch_first=True)
+
         self.maxpool = nn.MaxPool2d((16,24))
 
         try:
             self.subtractive_rnn = args.subtractive_rnn
         except Exception as e:
             self.subtractive_rnn = False
+
+        try:
+            self.full_recurrence = args.full_recurrence
+        except Exception as e:
+            self.full_recurrence = True
 
     def forward(self, input, objects, objects_length):
         object_features = input
@@ -301,7 +315,7 @@ class MaxRNNSceneGraphBatched(NaiveRNNSceneGraphBatched):
             
             for query in queries:
 
-                if True:
+                if not self.full_recurrence:
                     attention_map_batched = torch.einsum("bj,bjkl -> bkl", query,fused_object_coords_batched)
                 else:
                     attention_map_batched = torch.einsum("bj,bjkl -> bkl", query,remaining_scene)
@@ -346,8 +360,10 @@ class MaxRNNSceneGraphBatched(NaiveRNNSceneGraphBatched):
             device = fused_object_coords.device
 
             
-
-            h,c = torch.zeros(1,batch_size,self.feature_dim).to(device), torch.zeros(1,batch_size,self.feature_dim).to(device)
+            if self.rnn_type == 'lstm':
+                h = torch.zeros(1,batch_size,self.feature_dim).to(device), torch.zeros(1,batch_size,self.feature_dim).to(device)
+            else:
+                h = torch.zeros(1,batch_size,self.feature_dim).to(device)
 
             query_list = []
 
@@ -357,11 +373,11 @@ class MaxRNNSceneGraphBatched(NaiveRNNSceneGraphBatched):
 
                 scene_representation = self.maxpool(remaining_scene).squeeze(-1).squeeze(-1).unsqueeze(1)
                 
-                output, (h,c) = self.attention_rnn(scene_representation,(h,c))
+                output, h = self.attention_rnn(scene_representation,h)
 
                 query = output.view(batch_size,-1)
 
-                if True:
+                if not self.full_recurrence:
                     attention_map_batched = torch.einsum("bj,bjkl -> bkl", query,fused_object_coords)
                 else:
                     attention_map_batched = torch.einsum("bj,bjkl -> bkl", query,remaining_scene)

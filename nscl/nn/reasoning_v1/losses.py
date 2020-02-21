@@ -136,6 +136,8 @@ class QALoss(MultitaskLossBase):
         except Exception as e:
             self.presupposition_semantics = False
 
+        self.bool_threshold = 0.02
+
     def forward(self, feed_dict, answers, question_index=None, loss_weights=None, accuracy_weights=None):
         """
         Args:
@@ -196,7 +198,7 @@ class QALoss(MultitaskLossBase):
                 gt = word2idx[gt]
                 loss = self._xent_loss
             elif response_query_type == 'bool':
-                argmax = int((a > math.log(0.5)).item())
+                argmax = int((a > math.log(self.bool_threshold)).item())
                 outputs['answer'].append(argmax)
                 gt = int(gt)
                 loss = self._bce_loss
@@ -222,6 +224,18 @@ class QALoss(MultitaskLossBase):
                 else:
                     new_key = key+'/neg'
                     monitors.setdefault(new_key, []).append((int(gt == argmax), acc_w))
+            elif query_type=='count':
+                new_key = key+'/predicted_count_less'
+                if gt>argmax:
+                    monitors.setdefault(new_key, []).append((1, acc_w))
+                else:
+                    monitors.setdefault(new_key, []).append((0, acc_w))
+
+                new_key = key+'/predicted_count_greater'
+                if gt<argmax:
+                    monitors.setdefault(new_key, []).append((1, acc_w))
+                else:
+                    monitors.setdefault(new_key, []).append((0, acc_w))
 
 
             if self.training and self.add_supervision:

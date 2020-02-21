@@ -41,7 +41,7 @@ parser.add_argument('--configs', default='', type='kv', metavar='CFGS')
 parser.add_argument('--expr', default=None, metavar='DIR', help='experiment name')
 parser.add_argument('--training-target', required=True, choices=['derender', 'parser', 'all'])
 parser.add_argument('--training-visual-modules', default='all', choices=['none', 'object', 'relation', 'all'])
-parser.add_argument('--curriculum', default='all', choices=['off', 'scene', 'program', 'all','restricted','accelerated','intermediate'])
+parser.add_argument('--curriculum', default='all', choices=['off', 'scene', 'program', 'all','restricted','accelerated','intermediate','simple_syntax'])
 parser.add_argument('--question-transform', default='off', choices=['off', 'basic', 'parserv1-groundtruth', 'parserv1-candidates', 'parserv1-candidates-executed'])
 parser.add_argument('--concept-quantization-json', default=None, metavar='FILE')
 
@@ -97,6 +97,8 @@ parser.add_argument('--adversarial-loss', type='bool', default=False)
 parser.add_argument('--adversarial-lr', type=float, default=0.0002, metavar='N', help='initial learning rate')
 parser.add_argument('--presupposition-semantics', type='bool', default=False)
 parser.add_argument('--subtractive-rnn', type='bool', default=False)
+parser.add_argument('--rnn-type', default='lstm', choices=['lstm','gru'])
+parser.add_argument('--full-recurrence', type='bool', default=True)
 
 
 args = parser.parse_args()
@@ -322,6 +324,19 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
             (80, 10, 25),
             (1e9, None, None)
         ]
+    elif args.curriculum=='simple_syntax':
+        curriculum_strategy = [
+            (0, 3, 4),
+            (10, 4, 4),
+            (20, 5, 4),
+            (30, 6, 4),
+            (40, 7, 4),
+            (50, 8, 4),
+            (60, 9, 4),
+            (70, 10, 4),
+            (80, 10, 25),
+            (1e9, None, None)
+        ]
     else:
         curriculum_strategy = [
             (0, 3, 4),
@@ -374,10 +389,8 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
             for si, s in enumerate(curriculum_strategy):
                 if curriculum_strategy[si][0] < epoch <= curriculum_strategy[si + 1][0]:
                     max_scene_size, max_program_size = s[1:]
-                    if args.curriculum in ('scene', 'all','restricted','accelerated','intermediate'):
-                        this_train_dataset = this_train_dataset.filter_scene_size(max_scene_size)
-                    if args.curriculum in ('program', 'all','restricted','accelerated','intermediate'):
-                        this_train_dataset = this_train_dataset.filter_program_size_raw(max_program_size)
+                    this_train_dataset = this_train_dataset.filter_scene_size(max_scene_size)
+                    this_train_dataset = this_train_dataset.filter_program_size_raw(max_program_size)
                     logger.critical('Building the data loader. Curriculum = {}/{}, length = {}.'.format(*s[1:], len(this_train_dataset)))
                     break
 
@@ -406,8 +419,8 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
             fname = osp.join(args.ckpt_dir, 'epoch_{}.pth'.format(epoch))
             trainer.save_checkpoint(fname, dict(epoch=epoch, meta_file=args.meta_file))
 
-        if epoch > int(args.epochs * 0.6):
-            trainer.set_learning_rate(args.lr * 0.1)
+        #if epoch > int(args.epochs * 0.6):
+        #    trainer.set_learning_rate(args.lr * 0.1)
 
 
 def backward_check_nan(self, feed_dict, loss, monitors, output_dict):
