@@ -15,6 +15,7 @@ Training and evaulating the Neuro-Symbolic Concept Learner.
 import time
 import os.path as osp
 
+import torch
 import torch.backends.cudnn as cudnn
 import torch.cuda as cuda
 
@@ -274,7 +275,7 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
 
     if args.clip_grad:
         logger.info('Registering the clip_grad hook: {}.'.format(args.clip_grad))
-        def clip_grad(self, loss):
+        def clip_grad(self, feed_dict, loss, monitors, output_dict):
             from torch.nn.utils import clip_grad_norm_
             clip_grad_norm_(self.model.parameters(), max_norm=args.clip_grad)
         trainer.register_event('backward:after', clip_grad)
@@ -398,9 +399,9 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
 
         for enum_id in range(args.enums_per_epoch):
             if args.adversarial_loss:
-                train_epoch(epoch, trainer, train_dataloader, meters, adversarial_trainer)
+                train_epoch(epoch, trainer, train_dataloader, meters, model, adversarial_trainer)
             else:
-                train_epoch(epoch, trainer, train_dataloader, meters)
+                train_epoch(epoch, trainer, train_dataloader, meters, model)
 
         if epoch % args.validation_interval == 0:
             model.eval()
@@ -433,7 +434,18 @@ def backward_check_nan(self, feed_dict, loss, monitors, output_dict):
             from IPython import embed; embed()
 
 
-def train_epoch(epoch, trainer, train_dataloader, meters,adversarial_trainer=None):
+def get_model_gradient_magnitude(model):
+    grads = []
+    for param in model.parameters():
+        try:
+            grads.append(param.grad.view(-1))
+        except Exception as e:
+            continue
+    grads = torch.cat(grads)
+    n = torch.norm(grads, p=2)
+    print(n)
+
+def train_epoch(epoch, trainer, train_dataloader, meters,model,adversarial_trainer=None):
     nr_iters = args.iters_per_epoch
     if nr_iters == 0:
         nr_iters = len(train_dataloader)
@@ -467,6 +479,10 @@ def train_epoch(epoch, trainer, train_dataloader, meters,adversarial_trainer=Non
             data_time = time.time() - end; end = time.time()
 
             loss, monitors, output_dict, extra_info = trainer.step(feed_dict, cast_tensor=False)
+
+            #get_model_gradient_magnitude(model)
+
+
             if adversarial_trainer is not None:
                 num_adversarial_steps = 1
                 for l in range(num_adversarial_steps):
