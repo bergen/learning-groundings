@@ -69,7 +69,8 @@ class ReasoningV1Model(nn.Module):
                             'naive-rnn-batched':sng.NaiveRNNSceneGraphBatched,
                             'naive-rnn-global-batched':sng.NaiveRNNSceneGraphGlobalBatched,
                             'structured-rnn-batched':sng.StructuredRNNSceneGraphBatched,
-                            'max-rnn-batched':sng.MaxRNNSceneGraphBatched}
+                            'max-rnn-batched':sng.MaxRNNSceneGraphBatched,
+                            'low-dim-rnn-batched':sng.LowDimensionalRNNBatched}
 
         try:
             self.scene_graph = attention_dispatch[args.attention_type](256, configs.model.sg_dims, 16, args=args)

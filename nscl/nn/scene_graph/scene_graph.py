@@ -39,7 +39,8 @@ class SceneGraph(nn.Module):
 
 
 
-        self.object_coord_fuse = nn.Sequential(nn.Conv2d(feature_dim+2,feature_dim,kernel_size=1),nn.ReLU())
+        #self.object_coord_fuse = nn.Sequential(nn.Conv2d(feature_dim+2,feature_dim,kernel_size=1), nn.BatchNorm2d(feature_dim), nn.ReLU())
+        self.object_coord_fuse = nn.Sequential(nn.Conv2d(feature_dim+2,feature_dim,kernel_size=1), nn.ReLU())
         
         self.object_features_layer = nn.Sequential(nn.Linear(feature_dim,output_dims[1]),nn.ReLU())
         self.obj1_linear = nn.Linear(output_dims[1],output_dims[1])
@@ -465,7 +466,159 @@ class MaxRNNSceneGraphBatched(NaiveRNNSceneGraphBatched):
 
         return outputs
 
+
+
+class LowDimensionalRNNBatched(NaiveRNNSceneGraphBatched):
+    #first maps the feature map into a low dimensional space, and then computes attention on this
+    def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True, args=None):
+        super().__init__(feature_dim, output_dims, downsample_rate)
+
+        try:
+            self.rnn_type =  args.rnn_type
+        except Exception as e:
+            self.rnn_type = 'lstm'
+
+        self.projection_dim = 5
+        self.attention_cnn = nn.Sequential(nn.Conv2d(feature_dim,self.projection_dim,kernel_size=1), nn.ReLU())
+
+
+        if self.rnn_type=='lstm':
+            self.attention_rnn = nn.LSTM(self.projection_dim, self.projection_dim,batch_first=True)
+        elif self.rnn_type=='gru':
+            self.attention_rnn = nn.GRU(self.projection_dim, self.projection_dim,batch_first=True)
+
+        self.maxpool = nn.MaxPool2d((16,24))
+
+        try:
+            self.subtractive_rnn = args.subtractive_rnn
+        except Exception as e:
+            self.subtractive_rnn = False
+
+        try:
+            self.full_recurrence = args.full_recurrence
+        except Exception as e:
+            self.full_recurrence = True
+
+    def forward(self, input, objects, objects_length):
+        object_features = input
         
+
+        batch_size = input.size(0)
+        max_num_objects = max(objects_length)
+       
+        outputs = list()
+        #object_features has shape batch_size x 256 x 16 x 24
+        obj_coord_map = torch.unsqueeze(coord_map((object_features.size(2),object_features.size(3)),object_features.device),dim=0)
+
+        obj_coord_map_batched = obj_coord_map.repeat(batch_size,1,1,1)
+
+        scene_object_coords_batched = torch.cat((object_features,obj_coord_map_batched), dim=1)
+
+        fused_object_coords_batched = self.object_coord_fuse(scene_object_coords_batched)
+
+        queries = self.get_queries(fused_object_coords_batched, batch_size, max_num_objects)
+
+        if not self.subtractive_rnn:
+            attention_map_batched = torch.einsum("bij,bjkl -> bikl", queries,fused_object_coords_batched)
+            attention_map_batched = nn.Softmax(2)(attention_map_batched.reshape(batch_size,max_num_objects,-1)).view_as(attention_map_batched)
+            object_values_batched = torch.einsum("bijk,bljk -> bil", attention_map_batched, fused_object_coords_batched) 
+            
+
+        else:
+            object_representations = []
+
+            low_dim_scene = self.attention_cnn(fused_object_coords_batched)
+            remaining_scene = low_dim_scene
+
+            
+            for query in queries:
+
+                if not self.full_recurrence:
+                    attention_map_batched = torch.einsum("bj,bjkl -> bkl", query,low_dim_scene)
+                else:
+                    attention_map_batched = torch.einsum("bj,bjkl -> bkl", query,remaining_scene)
+                attention_map_batched = nn.Softmax(1)(attention_map_batched.reshape(batch_size,-1)).view_as(attention_map_batched)
+                object_values = torch.einsum("bjk,bljk -> bl", attention_map_batched, fused_object_coords_batched) 
+                object_representations.append(object_values)
+
+                weighted_scene = torch.einsum("bjk,bljk -> bljk", attention_map_batched, remaining_scene) 
+
+                remaining_scene = remaining_scene - weighted_scene
+
+            object_values_batched = torch.stack(object_representations,dim=1)
+
+        object_representations_batched = self._norm(self.object_features_layer(object_values_batched))
+        object_pair_representations_batched = self.objects_to_pair_representations(object_representations_batched)
+
+
+        outputs = []
+        for i in range(batch_size):
+            num_objects = objects_length[i]
+            object_representations = torch.squeeze(object_representations_batched[i,0:num_objects,:],dim=0)
+            object_pair_representations = torch.squeeze(object_pair_representations_batched[i,0:num_objects,0:num_objects,:],dim=0).contiguous()
+            
+            outputs.append([
+                        None,
+                        object_representations,
+                        object_pair_representations
+                    ])
+
+
+        return outputs
+
+    def get_queries(self,fused_object_coords,batch_size,max_num_objects):
+
+        if not self.subtractive_rnn:
+            rnn_input = self.maxpool(fused_object_coords).squeeze(-1).squeeze(-1)
+            rnn_input = rnn_input.unsqueeze(1).expand(-1,max_num_objects,-1)
+            queries,_ = self.attention_rnn(rnn_input)
+            return queries
+
+        else:
+            device = fused_object_coords.device
+
+            
+            if self.rnn_type == 'lstm':
+                h = torch.zeros(1,batch_size,self.projection_dim).to(device), torch.zeros(1,batch_size,self.projection_dim).to(device)
+            else:
+                h = torch.zeros(1,batch_size,self.projection_dim).to(device)
+
+            query_list = []
+
+            low_dim_scene = self.attention_cnn(fused_object_coords)
+
+
+            remaining_scene = low_dim_scene
+
+            for i in range(max_num_objects):
+
+                scene_representation = self.maxpool(remaining_scene).squeeze(-1).squeeze(-1).unsqueeze(1)
+                
+                output, h = self.attention_rnn(scene_representation,h)
+
+                query = output.view(batch_size,-1)
+
+                if not self.full_recurrence:
+                    attention_map_batched = torch.einsum("bj,bjkl -> bkl", query,low_dim_scene)
+                else:
+                    attention_map_batched = torch.einsum("bj,bjkl -> bkl", query,remaining_scene)
+
+                attention_map_batched = nn.Softmax(1)(attention_map_batched.reshape(batch_size,-1)).view_as(attention_map_batched)
+
+                weighted_scene = torch.einsum("bjk,bljk -> bljk", attention_map_batched, remaining_scene) 
+
+                remaining_scene = remaining_scene - weighted_scene
+
+
+                query_list.append(query)
+
+
+
+            #queries = torch.stack(query_list,dim=1)
+
+            return query_list
+
+
 
 class NaiveRNNSceneGraphGlobalBatched(NaiveRNNSceneGraphBatchedBase):
     def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True):

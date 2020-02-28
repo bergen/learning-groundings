@@ -14,6 +14,7 @@ Training and evaulating the Neuro-Symbolic Concept Learner.
 
 import time
 import os.path as osp
+import csv
 
 import torch
 import torch.backends.cudnn as cudnn
@@ -90,7 +91,8 @@ parser.add_argument('--force-gpu', action='store_true', help='force the script t
 
 #scene graph
 parser.add_argument('--attention-type', default='cnn', choices=['cnn', 'naive-rnn', 'naive-rnn-batched',
-                                                                'naive-rnn-global-batched','structured-rnn-batched','max-rnn-batched'])
+                                                                'naive-rnn-global-batched','structured-rnn-batched',
+                                                                'max-rnn-batched','low-dim-rnn-batched'])
 
 parser.add_argument('--attention-loss', type='bool', default=False)
 parser.add_argument('--anneal-rnn', type='bool', default=False)
@@ -100,7 +102,8 @@ parser.add_argument('--presupposition-semantics', type='bool', default=False)
 parser.add_argument('--subtractive-rnn', type='bool', default=False)
 parser.add_argument('--rnn-type', default='lstm', choices=['lstm','gru'])
 parser.add_argument('--full-recurrence', type='bool', default=True)
-
+parser.add_argument('--lr-cliff-epoch', type=int, default=100) #this is the epoch at which the lr will fall by factor of 0.1
+parser.add_argument('--optimizer', default='adamw', choices=['adamw', 'rmsprop'])
 
 args = parser.parse_args()
 
@@ -152,17 +155,16 @@ def initialize_adversary():
 def main():
     args.dump_dir = ensure_path(osp.join(
         'dumps', args.series_name, args.desc_name, (
-            args.training_target +
-            ('-curriculum_' + args.curriculum) +
+            ('curriculum_' + args.curriculum) +
             ('-dataset_' + dataset_type) +
-            ('-qtrans_' + args.question_transform if args.question_transform is not None else '') +
             ('-' + args.expr if args.expr is not None else '') +
             ('-lr_' + str(args.lr)) + 
             ('-batch_' + str(args.batch_size)) + 
             ('-attention_' + str(args.attention_type)) +
-            ('-attention_loss' + str(args.attention_loss))+
-            ('-adversarial_loss' + str(args.adversarial_loss))+
-            ('-adversarial_lr' + str(args.adversarial_lr))
+            ('-subtractive_rnn' + str(args.subtractive_rnn))+
+            ('-full_recurrence' + str(args.full_recurrence))+
+            ('-clip_grad' + str(args.clip_grad))+
+            ('-optimizer'+str(args.optimizer))
         )
     ))
 
@@ -232,8 +234,14 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
         optimizer = desc.make_optimizer(model, args.lr)
     else:
         from jactorch.optim import AdamW
+        from torch.optim import RMSprop
+        if args.optimizer =='adamw':
+            optimizer_fn = AdamW
+        elif args.optimizer=='rmsprop':
+            optimizer_fn = RMSprop
+
         trainable_parameters = filter(lambda x: x.requires_grad, model.parameters())
-        optimizer = AdamW(trainable_parameters, args.lr, weight_decay=configs.train.weight_decay)
+        optimizer = optimizer_fn(trainable_parameters, args.lr, weight_decay=configs.train.weight_decay)
 
         if args.adversarial_loss:
             from nscl.nn.reasoning_v1.losses import AdversarialLoss
@@ -376,6 +384,7 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
         logger.critical(meters.format_simple('Validation', {k: v for k, v in meters.avg.items() if v != 0}, compressed=False))
         return meters
 
+    gradient_magnitudes = {}
 
 
     for epoch in range(args.start_epoch + 1, args.epochs + 1):
@@ -399,9 +408,9 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
 
         for enum_id in range(args.enums_per_epoch):
             if args.adversarial_loss:
-                train_epoch(epoch, trainer, train_dataloader, meters, model, adversarial_trainer)
+                train_epoch(epoch, trainer, train_dataloader, meters, model, adversarial_trainer,gradient_magnitudes=gradient_magnitudes)
             else:
-                train_epoch(epoch, trainer, train_dataloader, meters, model)
+                train_epoch(epoch, trainer, train_dataloader, meters, model,gradient_magnitudes=gradient_magnitudes)
 
         if epoch % args.validation_interval == 0:
             model.eval()
@@ -418,11 +427,22 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
 
         if epoch % args.save_interval == 0 and not args.debug:
             fname = osp.join(args.ckpt_dir, 'epoch_{}.pth'.format(epoch))
+            csv_name = osp.join(args.meta_dir, 'gradient_magnitudes_epoch_{}.csv'.format(epoch))
             trainer.save_checkpoint(fname, dict(epoch=epoch, meta_file=args.meta_file))
+            write_dict_to_csv(csv_name,gradient_magnitudes)
 
-        #if epoch > int(args.epochs * 0.6):
-        #    trainer.set_learning_rate(args.lr * 0.1)
+        if epoch > int(args.epochs * args.lr_cliff_epoch):
+            trainer.set_learning_rate(args.lr * 0.1)
 
+def write_dict_to_csv(file,d):
+    #d is a dict of lists
+    with open(file, "w", newline="") as f:
+        writer = csv.writer(f)
+        for k in d.keys():
+            l = d[k]
+            for n in l:
+                row = [k,n]
+                writer.writerow(row)
 
 def backward_check_nan(self, feed_dict, loss, monitors, output_dict):
     import torch
@@ -443,9 +463,9 @@ def get_model_gradient_magnitude(model):
             continue
     grads = torch.cat(grads)
     n = torch.norm(grads, p=2)
-    print(n)
+    return n.item()
 
-def train_epoch(epoch, trainer, train_dataloader, meters,model,adversarial_trainer=None):
+def train_epoch(epoch, trainer, train_dataloader, meters,model,adversarial_trainer=None,gradient_magnitudes=None):
     nr_iters = args.iters_per_epoch
     if nr_iters == 0:
         nr_iters = len(train_dataloader)
@@ -462,6 +482,9 @@ def train_epoch(epoch, trainer, train_dataloader, meters,model,adversarial_train
     train_iter = iter(train_dataloader)
 
     end = time.time()
+
+    gradient_magnitudes[epoch] = []
+
     with tqdm_pbar(total=nr_iters) as pbar:
         for i in range(nr_iters):
             feed_dict = next(train_iter)
@@ -480,7 +503,8 @@ def train_epoch(epoch, trainer, train_dataloader, meters,model,adversarial_train
 
             loss, monitors, output_dict, extra_info = trainer.step(feed_dict, cast_tensor=False)
 
-            #get_model_gradient_magnitude(model)
+            gradient_magnitude = get_model_gradient_magnitude(model)
+            gradient_magnitudes[epoch].append(gradient_magnitude)
 
 
             if adversarial_trainer is not None:
