@@ -48,6 +48,9 @@ class Model(ReasoningV1Model):
         except Exception as e:
             pass
 
+        self.attention_type = args.attention_type
+
+
     def get_object_lengths(self,feed_dict):
         object_lengths = []
         scene = feed_dict['scene']
@@ -64,7 +67,12 @@ class Model(ReasoningV1Model):
         monitors, outputs = {}, {}
 
 
-        f_scene = self.resnet(feed_dict.image)
+        if self.attention_type=='monet':
+            f_scene = feed_dict.image
+        else:
+            f_scene = self.resnet(feed_dict.image)
+
+
         if self.anneal_rnn:
             f_sng = self.scene_graph(f_scene, feed_dict.objects, object_lengths,feed_dict.epoch)
         else:

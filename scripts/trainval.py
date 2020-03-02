@@ -92,7 +92,7 @@ parser.add_argument('--force-gpu', action='store_true', help='force the script t
 #scene graph
 parser.add_argument('--attention-type', default='cnn', choices=['cnn', 'naive-rnn', 'naive-rnn-batched',
                                                                 'naive-rnn-global-batched','structured-rnn-batched',
-                                                                'max-rnn-batched','low-dim-rnn-batched'])
+                                                                'max-rnn-batched','low-dim-rnn-batched','monet'])
 
 parser.add_argument('--attention-loss', type='bool', default=False)
 parser.add_argument('--anneal-rnn', type='bool', default=False)

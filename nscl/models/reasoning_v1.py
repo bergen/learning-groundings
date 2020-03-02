@@ -63,6 +63,7 @@ class ReasoningV1Model(nn.Module):
         self.resnet.layer4 = jacnn.Identity()
 
         import nscl.nn.scene_graph.scene_graph as sng
+        import nscl.nn.scene_graph.monet as monet
         # number of channels = 256; downsample rate = 16.
         attention_dispatch = {'cnn':sng.AttentionCNNSceneGraph,
                             'naive-rnn':sng.NaiveRNNSceneGraph,
@@ -70,11 +71,16 @@ class ReasoningV1Model(nn.Module):
                             'naive-rnn-global-batched':sng.NaiveRNNSceneGraphGlobalBatched,
                             'structured-rnn-batched':sng.StructuredRNNSceneGraphBatched,
                             'max-rnn-batched':sng.MaxRNNSceneGraphBatched,
-                            'low-dim-rnn-batched':sng.LowDimensionalRNNBatched}
+                            'low-dim-rnn-batched':sng.LowDimensionalRNNBatched,
+                            'monet':monet.MONet}
 
         try:
-            self.scene_graph = attention_dispatch[args.attention_type](256, configs.model.sg_dims, 16, args=args)
+            if args.attention_type=='monet':
+                self.scene_graph = attention_dispatch[args.attention_type](128, 128, 3, configs.model.sg_dims, args=args)
+            else:
+                self.scene_graph = attention_dispatch[args.attention_type](256, configs.model.sg_dims, 16, args=args)
         except Exception as e:
+            print(e)
             self.scene_graph = attention_dispatch[args.attention_type](256, configs.model.sg_dims, 16)
 
         import nscl.nn.reasoning_v1.quasi_symbolic as qs
