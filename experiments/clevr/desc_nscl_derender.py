@@ -50,6 +50,8 @@ class Model(ReasoningV1Model):
 
         self.attention_type = args.attention_type
 
+        self.fine_tune_resnet = args.fine_tune_resnet
+
 
     def get_object_lengths(self,feed_dict):
         object_lengths = []
@@ -70,7 +72,11 @@ class Model(ReasoningV1Model):
         if self.attention_type=='monet':
             f_scene = feed_dict.image
         else:
-            f_scene = self.resnet(feed_dict.image)
+            if self.fine_tune_resnet:
+                f_scene = self.resnet(feed_dict.image)
+            else:
+                with torch.no_grad():
+                    f_scene = self.resnet(feed_dict.image)
 
 
         if self.anneal_rnn:

@@ -104,6 +104,7 @@ parser.add_argument('--rnn-type', default='lstm', choices=['lstm','gru'])
 parser.add_argument('--full-recurrence', type='bool', default=True)
 parser.add_argument('--lr-cliff-epoch', type=int, default=100) #this is the epoch at which the lr will fall by factor of 0.1
 parser.add_argument('--optimizer', default='adamw', choices=['adamw', 'rmsprop'])
+parser.add_argument('--fine-tune-resnet', type='bool', default=False)
 
 args = parser.parse_args()
 

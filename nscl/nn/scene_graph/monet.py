@@ -202,10 +202,10 @@ class MONet(nn.Module):
         object_representations = []
 
         for slot in range(max_num_objects):
-            if slot < max_num_objects - 1:
-                log_mask, log_scope = self.attention(x, log_scope)
-            else:
-                log_mask = log_scope
+            #if slot < max_num_objects - 1:
+            log_mask, log_scope = self.attention(x, log_scope)
+            #else:
+            #    log_mask = log_scope
 
             inp = torch.cat((x, log_mask), dim=1)
             object_rep = self.object_encoder(inp)
