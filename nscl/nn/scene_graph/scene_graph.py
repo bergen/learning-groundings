@@ -27,10 +27,17 @@ __all__ = ['SceneGraph','NaiveRNNSceneGraph','AttentionCNNSceneGraph']
 
 
 class SceneGraph(nn.Module):
-    def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True):
+    def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True,args=None,img_input_dim=(16,24)):
         super().__init__()
         self.pool_size = 7
-        self.feature_dim = feature_dim
+
+        if args.resnet_type=='cmc_resnet':
+            self.feature_dim = feature_dim
+            self.img_channels = 8192
+            self.collapse_image = True
+        else:
+            self.feature_dim = feature_dim
+            self.collapse_image = False
         self.output_dims = output_dims
         self.downsample_rate = downsample_rate
 
@@ -38,9 +45,11 @@ class SceneGraph(nn.Module):
         self.concatenative_pair_representation = concatenative_pair_representation
 
 
-
         #self.object_coord_fuse = nn.Sequential(nn.Conv2d(feature_dim+2,feature_dim,kernel_size=1), nn.BatchNorm2d(feature_dim), nn.ReLU())
-        self.object_coord_fuse = nn.Sequential(nn.Conv2d(feature_dim+2,feature_dim,kernel_size=1), nn.ReLU())
+        if self.collapse_image:
+            self.object_coord_fuse = nn.Sequential(nn.Conv2d(self.img_channels+2,self.feature_dim,kernel_size=1), nn.ReLU())
+        else:
+            self.object_coord_fuse = nn.Sequential(nn.Conv2d(feature_dim+2,feature_dim,kernel_size=1), nn.ReLU())
         
         self.object_features_layer = nn.Sequential(nn.Linear(feature_dim,output_dims[1]),nn.ReLU())
         self.obj1_linear = nn.Linear(output_dims[1],output_dims[1])
@@ -55,6 +64,7 @@ class SceneGraph(nn.Module):
             elif isinstance(m, nn.Linear):
                 nn.init.kaiming_normal_(m.weight.data)
                 m.bias.data.zero_()
+
 
     def forward(self, input, objects, objects_length):
         object_features = input
@@ -141,10 +151,10 @@ class SceneGraph(nn.Module):
 
 
 class NaiveRNNSceneGraph(SceneGraph):
-    def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True):
-        super().__init__(feature_dim, output_dims, downsample_rate)
+    def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True,args=None,img_input_dim=(16,24)):
+        super().__init__(feature_dim, output_dims, downsample_rate,args=args,img_input_dim=(16,24))
 
-        self.attention_rnn = nn.LSTM(feature_dim*16*24, feature_dim,batch_first=True)
+        self.attention_rnn = nn.LSTM(feature_dim*img_input_dim[0]*img_input_dim[1], feature_dim,batch_first=True)
 
     
 
@@ -158,8 +168,8 @@ class NaiveRNNSceneGraph(SceneGraph):
 
 
 class NaiveRNNSceneGraphBatchedBase(NaiveRNNSceneGraph):
-    def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True):
-        super().__init__(feature_dim, output_dims, downsample_rate)
+    def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True,args=None,img_input_dim=(16,24)):
+        super().__init__(feature_dim, output_dims, downsample_rate,args=args,img_input_dim=(16,24))
 
 
     def objects_to_pair_representations(self, object_representations_batched):
@@ -188,8 +198,8 @@ class NaiveRNNSceneGraphBatchedBase(NaiveRNNSceneGraph):
         return queries
 
 class NaiveRNNSceneGraphBatched(NaiveRNNSceneGraphBatchedBase):
-    def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True):
-        super().__init__(feature_dim, output_dims, downsample_rate)
+    def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True,args=None,img_input_dim=(16,24)):
+        super().__init__(feature_dim, output_dims, downsample_rate,args=args,img_input_dim=(16,24))
 
     def forward(self, input, objects, objects_length):
         object_features = input
@@ -259,8 +269,8 @@ class NaiveRNNSceneGraphBatched(NaiveRNNSceneGraphBatchedBase):
 
 
 class MaxRNNSceneGraphBatched(NaiveRNNSceneGraphBatched):
-    def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True, args=None):
-        super().__init__(feature_dim, output_dims, downsample_rate)
+    def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True, args=None,img_input_dim=(16,24)):
+        super().__init__(feature_dim, output_dims, downsample_rate,args=args,img_input_dim=img_input_dim)
 
         try:
             self.rnn_type =  args.rnn_type
@@ -272,7 +282,7 @@ class MaxRNNSceneGraphBatched(NaiveRNNSceneGraphBatched):
         elif self.rnn_type=='gru':
             self.attention_rnn = nn.GRU(feature_dim, feature_dim,batch_first=True)
 
-        self.maxpool = nn.MaxPool2d((16,24))
+        self.maxpool = nn.MaxPool2d(img_input_dim)
 
         try:
             self.subtractive_rnn = args.subtractive_rnn
@@ -678,11 +688,11 @@ class NaiveRNNSceneGraphGlobalBatched(NaiveRNNSceneGraphBatchedBase):
         return outputs
 
 class StructuredRNNSceneGraphBatched(NaiveRNNSceneGraphBatchedBase):
-    def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True):
-        super().__init__(feature_dim, output_dims, downsample_rate)
+    def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True,args=None,img_input_dim=(16,24)):
+        super().__init__(feature_dim, output_dims, downsample_rate,args=args,img_input_dim=img_input_dim)
 
         self.attention_rnn = nn.LSTM(2*feature_dim, feature_dim,batch_first=True)
-        self.maxpool = nn.MaxPool2d((16,24))
+        self.maxpool = nn.MaxPool2d(img_input_dim)
 
 
     def forward(self, input, objects, objects_length, epoch):
@@ -760,20 +770,20 @@ class StructuredRNNSceneGraphBatched(NaiveRNNSceneGraphBatchedBase):
             output, (h,c) = self.attention_rnn(rnn_input,(h,c))
 
             query = output.view(batch_size,-1)
-            #attention_map_batched = torch.einsum("bj,bjkl -> bkl", query,fused_object_coords)
+            attention_map_batched = torch.einsum("bj,bjkl -> bkl", query,fused_object_coords)
 
-            reordered_object_coords = fused_object_coords.permute(0,2,3,1)
-            query_for_mul = query.unsqueeze(-1).unsqueeze(1)
-            attention_map_batched = torch.matmul(reordered_object_coords,query_for_mul).squeeze(-1)
+            #reordered_object_coords = fused_object_coords.permute(0,2,3,1)
+            #query_for_mul = query.unsqueeze(-1).unsqueeze(1)
+            #attention_map_batched = torch.matmul(reordered_object_coords,query_for_mul).squeeze(-1)
             
             attention_map_batched = nn.Softmax(1)(attention_map_batched.reshape(batch_size,-1)).view_as(attention_map_batched)
 
 
-            attention_map_batched_reshape = attention_map_batched.view(batch_size,-1).unsqueeze(-1)
-            fused_object_coords_reshape = fused_object_coords.view(batch_size,self.feature_dim,-1)
-            object_representation = torch.matmul(fused_object_coords_reshape,attention_map_batched_reshape).squeeze(-1)
-            #object_representation = torch.einsum("bjk,bljk -> bl", attention_map_batched, fused_object_coords) 
-            print(object_representation.size())
+            #attention_map_batched_reshape = attention_map_batched.view(batch_size,-1).unsqueeze(-1)
+            #fused_object_coords_reshape = fused_object_coords.view(batch_size,self.feature_dim,-1)
+            #object_representation = torch.matmul(fused_object_coords_reshape,attention_map_batched_reshape).squeeze(-1)
+            
+            object_representation = torch.einsum("bjk,bljk -> bl", attention_map_batched, fused_object_coords) 
 
             query_list.append(query)
             object_list.append(object_representation)

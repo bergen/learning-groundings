@@ -58,9 +58,19 @@ class ReasoningV1Model(nn.Module):
         self.args = args
         self.vocab = vocab
 
+        self.resnet_type = args.resnet_type
+
         import jactorch.models.vision.resnet as resnet
-        self.resnet = resnet.resnet34(pretrained=True, incl_gap=False, num_classes=None)
-        self.resnet.layer4 = jacnn.Identity()
+        from nscl.models.cmc_resnet import load_pretrained_cmc
+        resnet_dict = {'resnet34':resnet.resnet34, 'resnet101':resnet.resnet101}
+        
+
+        if self.resnet_type!='cmc_resnet':
+            resnet_model = resnet_dict[self.resnet_type]
+            self.resnet = resnet_model(pretrained=True, incl_gap=False, num_classes=None)
+            self.resnet.layer4 = jacnn.Identity()
+        else:
+            self.resnet = load_pretrained_cmc()
 
         import nscl.nn.scene_graph.scene_graph as sng
         import nscl.nn.scene_graph.monet as monet
@@ -78,7 +88,16 @@ class ReasoningV1Model(nn.Module):
             if args.attention_type=='monet':
                 self.scene_graph = attention_dispatch[args.attention_type](128, 128, 3, configs.model.sg_dims, args=args)
             else:
-                self.scene_graph = attention_dispatch[args.attention_type](256, configs.model.sg_dims, 16, args=args)
+                if self.resnet_type=='resnet34':
+                    feature_dim=256
+                    img_input_dim=(16,24)
+                elif self.resnet_type=='resnet101':
+                    feature_dim=1024
+                    img_input_dim=(16,24)
+                elif self.resnet_type=='cmc_resnet':
+                    feature_dim=1024
+                    img_input_dim=(7,7)
+                self.scene_graph = attention_dispatch[args.attention_type](feature_dim, configs.model.sg_dims, 16, args=args,img_input_dim=img_input_dim)
         except Exception as e:
             print(e)
             self.scene_graph = attention_dispatch[args.attention_type](256, configs.model.sg_dims, 16)

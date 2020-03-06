@@ -105,6 +105,7 @@ parser.add_argument('--full-recurrence', type='bool', default=True)
 parser.add_argument('--lr-cliff-epoch', type=int, default=100) #this is the epoch at which the lr will fall by factor of 0.1
 parser.add_argument('--optimizer', default='adamw', choices=['adamw', 'rmsprop'])
 parser.add_argument('--fine-tune-resnet', type='bool', default=False)
+parser.add_argument('--resnet-type', default='resnet34', choices=['resnet34', 'resnet101','cmc_resnet'])
 
 args = parser.parse_args()
 
@@ -162,10 +163,11 @@ def main():
             ('-lr_' + str(args.lr)) + 
             ('-batch_' + str(args.batch_size)) + 
             ('-attention_' + str(args.attention_type)) +
-            ('-subtractive_rnn' + str(args.subtractive_rnn))+
-            ('-full_recurrence' + str(args.full_recurrence))+
-            ('-clip_grad' + str(args.clip_grad))+
-            ('-optimizer'+str(args.optimizer))
+            ('-subtractive_rnn_' + str(args.subtractive_rnn))+
+            ('-full_recurrence_' + str(args.full_recurrence))+
+            ('-resnet_type_' + str(args.resnet_type)) +
+            ('-clip_grad_' + str(args.clip_grad))+
+            ('-optimizer_'+str(args.optimizer))
         )
     ))
 

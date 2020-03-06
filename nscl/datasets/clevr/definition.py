@@ -14,10 +14,13 @@ Basic concepts in the CLEVR dataset.
 
 import six
 import numpy as np
+import torch
 
 from jacinle.logging import get_logger
 from nscl.datasets.definition import DatasetDefinitionBase
 from .program_translator import clevr_to_nsclseq
+
+from skimage import color
 
 logger = get_logger(__file__)
 
@@ -27,6 +30,52 @@ __all__ = [
     'build_concept_retrieval_clevr_dataset', 'build_concept_quantization_clevr_dataset'
 ]
 
+
+class RGB2Lab(object):
+    """Convert RGB PIL image to ndarray Lab."""
+    def __call__(self, img):
+        img = np.asarray(img, np.uint8)
+        img = color.rgb2lab(img)
+        return img
+
+class LabTransform(RGB2Lab):
+    def __call__(self, img, bbox):
+        return super().__call__(img), bbox
+
+class Normalize(object):
+    """Normalize a tensor image with mean and standard deviation.
+    Given mean: ``(M1,...,Mn)`` and std: ``(S1,..,Sn)`` for ``n`` channels, this transform
+    will normalize each channel of the input ``torch.*Tensor`` i.e.
+    ``input[channel] = (input[channel] - mean[channel]) / std[channel]``
+
+    .. note::
+        This transform acts out of place, i.e., it does not mutates the input tensor.
+
+    Args:
+        mean (sequence): Sequence of means for each channel.
+        std (sequence): Sequence of standard deviations for each channel.
+        inplace(bool,optional): Bool to make this operation in-place.
+
+    """
+
+    def __init__(self, mean, std, inplace=False):
+        self.mean = mean
+        self.std = std
+        self.inplace = inplace
+
+    def __call__(self, tensor):
+        """
+        Args:
+            tensor (Tensor): Tensor image of size (C, H, W) to be normalized.
+
+        Returns:
+            Tensor: Normalized Tensor image.
+        """
+        return F.normalize(tensor, self.mean, self.std, self.inplace)
+
+
+    def __repr__(self):
+        return self.__class__.__name__ + '(mean={0}, std={1})'.format(self.mean, self.std)
 
 class CLEVRDefinition(DatasetDefinitionBase):
     operation_signatures = [
@@ -156,13 +205,33 @@ class CLEVRDefinition(DatasetDefinitionBase):
 
 def build_clevr_dataset(args, configs, image_root, scenes_json, questions_json):
     import jactorch.transforms.bbox as T
-    image_transform = T.Compose([
-        T.NormalizeBbox(),
-        T.Resize(configs.data.image_size),
-        T.DenormalizeBbox(),
-        T.ToTensor(),
-        T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-    ])
+    from torchvision import transforms
+
+    if args.resnet_type!='cmc_resnet':
+        image_transform = T.Compose([
+            T.NormalizeBbox(),
+            T.Resize(configs.data.image_size),
+            T.DenormalizeBbox(),
+            T.ToTensor(),
+            T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        ])
+    elif args.resnet_type=='cmc_resnet':
+        #we are going to do a lab transform
+        mean = [(0 + 100) / 2, (-86.183 + 98.233) / 2, (-107.857 + 94.478) / 2]
+        std = [(100 - 0) / 2, (86.183 + 98.233) / 2, (107.857 + 94.478) / 2]
+        crop = transforms.CenterCrop(224)
+
+        cmc_transform = T.Compose([
+            T.Resize(configs.data.image_size),
+            lambda img,bbox: (crop(img),bbox),
+            LabTransform(),
+            T.ToTensor(),
+            lambda img,bbox: (img.to(dtype=torch.float32),bbox),
+            T.Normalize(mean=mean, std=std)
+        ])
+
+        image_transform = cmc_transform
+
 
     from nscl.datasets.datasets import NSCLDataset
     dataset = NSCLDataset(

@@ -79,7 +79,7 @@ class Model(ReasoningV1Model):
                     f_scene = self.resnet(feed_dict.image)
 
 
-        if self.anneal_rnn:
+        if self.attention_type=='structured-rnn-batched':
             f_sng = self.scene_graph(f_scene, feed_dict.objects, object_lengths,feed_dict.epoch)
         else:
             f_sng = self.scene_graph(f_scene, feed_dict.objects, object_lengths)
