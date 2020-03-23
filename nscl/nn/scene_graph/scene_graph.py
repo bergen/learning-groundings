@@ -294,6 +294,11 @@ class MaxRNNSceneGraphBatched(NaiveRNNSceneGraphBatched):
         except Exception as e:
             self.full_recurrence = True
 
+        try:
+            self.subtract_from_scene = args.subtract_from_scene
+        except Exception as e:
+            self.subtract_from_scene = True
+            
     def forward(self, input, objects, objects_length):
         object_features = input
         
@@ -331,7 +336,11 @@ class MaxRNNSceneGraphBatched(NaiveRNNSceneGraphBatched):
                 else:
                     attention_map_batched = torch.einsum("bj,bjkl -> bkl", query,remaining_scene)
                 attention_map_batched = nn.Softmax(1)(attention_map_batched.reshape(batch_size,-1)).view_as(attention_map_batched)
-                object_values = torch.einsum("bjk,bljk -> bl", attention_map_batched, remaining_scene) 
+
+                if self.subtract_from_scene:
+                    object_values = torch.einsum("bjk,bljk -> bl", attention_map_batched, remaining_scene) 
+                else:
+                    object_values = torch.einsum("bjk,bljk -> bl", attention_map_batched, fused_object_coords_batched) 
                 object_representations.append(object_values)
 
                 weighted_scene = torch.einsum("bjk,bljk -> bljk", attention_map_batched, remaining_scene) 
@@ -880,6 +889,123 @@ class AttentionCNNSceneGraph(SceneGraph):
 
         return outputs
 
+
+class SceneGraphObjectSupervision(nn.Module):
+    def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=True,concatenative_pair_representation=True,args=None,img_input_dim=(16,24)):
+        super().__init__()
+        self.pool_size = 7
+        self.feature_dim = feature_dim
+        self.output_dims = output_dims
+        self.downsample_rate = downsample_rate
+
+        self.object_supervision = object_supervision
+        self.concatenative_pair_representation = concatenative_pair_representation
+
+        self.object_roi_pool = jacnn.PrRoIPool2D(self.pool_size, self.pool_size, 1.0 / downsample_rate)
+        self.context_roi_pool = jacnn.PrRoIPool2D(self.pool_size, self.pool_size, 1.0 / downsample_rate)
+        self.relation_roi_pool = jacnn.PrRoIPool2D(self.pool_size, self.pool_size, 1.0 / downsample_rate)
+
+        self.context_feature_extract = nn.Conv2d(feature_dim, feature_dim, 1)
+        self.relation_feature_extract = nn.Conv2d(feature_dim, feature_dim // 2 * 3, 1)
+
+        self.object_feature_fuse = nn.Conv2d(feature_dim * 2, output_dims[1], 1)
+        self.relation_feature_fuse = nn.Conv2d(feature_dim // 2 * 3 + output_dims[1] * 2, output_dims[2], 1)
+
+        self.object_feature_fc = nn.Sequential(nn.ReLU(True), nn.Linear(output_dims[1] * self.pool_size ** 2, output_dims[1]))
+        self.relation_feature_fc = nn.Sequential(nn.ReLU(True), nn.Linear(output_dims[2] * self.pool_size ** 2, output_dims[2]))
+
+        self.obj1_linear = nn.Linear(output_dims[1],output_dims[1])
+        self.obj2_linear = nn.Linear(output_dims[1],output_dims[1])
+
+        self.reset_parameters()
+       
+
+
+    def reset_parameters(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight.data)
+                m.bias.data.zero_()
+            elif isinstance(m, nn.Linear):
+                nn.init.kaiming_normal_(m.weight.data)
+                m.bias.data.zero_()
+
+    def forward(self, input, objects, objects_length):
+        object_features = input
+        
+
+
+        context_features = self.context_feature_extract(input)
+        outputs = list()
+        objects_index = 0
+        for i in range(input.size(0)):
+            box = objects[objects_index:objects_index + objects_length[i].item()]
+            #box is a list of object boundaries for the image
+
+            objects_index += objects_length[i].item()
+
+            with torch.no_grad():
+                batch_ind = i + torch.zeros(box.size(0), 1, dtype=box.dtype, device=box.device)
+
+                # generate a "full-image" bounding box
+                image_h, image_w = input.size(2) * self.downsample_rate, input.size(3) * self.downsample_rate
+
+                image_box = torch.cat([
+                    torch.zeros(box.size(0), 1, dtype=box.dtype, device=box.device),
+                    torch.zeros(box.size(0), 1, dtype=box.dtype, device=box.device),
+                    image_w + torch.zeros(box.size(0), 1, dtype=box.dtype, device=box.device),
+                    image_h + torch.zeros(box.size(0), 1, dtype=box.dtype, device=box.device)
+                ], dim=-1)
+
+                # intersection maps
+                box_context_imap = functional.generate_intersection_map(box, image_box, self.pool_size)
+
+
+            this_context_features = self.context_roi_pool(context_features, torch.cat([batch_ind, image_box], dim=-1))
+            x, y = this_context_features.chunk(2, dim=1)
+            this_object_features = self.object_feature_fuse(torch.cat([
+                self.object_roi_pool(object_features, torch.cat([batch_ind, box], dim=-1)),
+                x, y * box_context_imap
+            ], dim=1))
+
+            object_representations = self._norm(self.object_feature_fc(this_object_features.view(box.size(0), -1)))
+
+            object_pair_representations = self.objects_to_pair_representations(object_representations)
+
+
+            outputs.append([
+                    None,
+                    object_representations,
+                    object_pair_representations
+                ])
+
+
+
+        return outputs
+
+
+
+    def objects_to_pair_representations(self, object_representations):
+        num_objects = object_representations.size(0)
+
+        obj1_representations = self.obj1_linear(object_representations)
+        obj2_representations = self.obj2_linear(object_representations)
+
+        obj1_representations.unsqueeze_(-1)
+        obj2_representations.unsqueeze_(-1)
+
+        obj1_representations = obj1_representations.transpose(1,2)
+        obj2_representations = obj2_representations.transpose(1,2).transpose(0,1)
+
+        obj1_representations = obj1_representations.repeat(1,num_objects,1)
+        obj2_representations = obj2_representations.repeat(num_objects,1,1)
+
+        object_pair_representations = obj1_representations+obj2_representations
+
+        return object_pair_representations
+
+    def _norm(self, x):
+        return x / x.norm(2, dim=-1, keepdim=True)
 
         
 
