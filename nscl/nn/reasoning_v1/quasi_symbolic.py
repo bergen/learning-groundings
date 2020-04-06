@@ -44,6 +44,7 @@ def set_apply_self_mask(key, value):
 
 def do_apply_self_mask(m):
     self_mask = torch.eye(m.size(-1), dtype=m.dtype, device=m.device)
+    
     return m * (1 - self_mask) + (-10) * self_mask
 
 
@@ -226,7 +227,7 @@ class ProgramExecutorContext(nn.Module):
                     cg = [cg]
                 mask = None
                 for c in cg:
-                    new_mask = self.taxnomy[k].similarity(self.features[k], c)
+                    new_mask = self.taxnomy[k].similarity(self.features[k], c,k=k)
                     mask = torch.min(mask, new_mask) if mask is not None else new_mask
                 if k == 2 and _apply_self_mask['relate']:
                     mask = do_apply_self_mask(mask)

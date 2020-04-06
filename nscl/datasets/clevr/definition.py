@@ -223,7 +223,7 @@ def build_clevr_dataset(args, configs, image_root, scenes_json, questions_json):
 
         cmc_transform = T.Compose([
             T.Resize(configs.data.image_size),
-            lambda img,bbox: (crop(img),bbox),
+            #lambda img,bbox: (crop(img),bbox),
             LabTransform(),
             T.ToTensor(),
             lambda img,bbox: (img.to(dtype=torch.float32),bbox),

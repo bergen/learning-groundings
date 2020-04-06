@@ -171,10 +171,13 @@ class ConceptEmbedding(nn.Module):
     _margin_cross = 0.5
     #_tau = 0.1
 
-    def similarity(self, query, identifier):
+    def similarity(self, query, identifier,k=1):
         #identifier is a concept
         #returns a list of log probabilities: prob that each object is the concept
-        
+        if k==2:
+            num_objs = query.size(0)
+            query = query.reshape(-1,query.size(-1))
+
         attributes = self.all_attributes
         concept = self.get_concept(identifier)
         attribute_index = concept.belong.argmax(-1).item()
@@ -185,6 +188,9 @@ class ConceptEmbedding(nn.Module):
         concept_index = word2ix[identifier]
 
         log_prob = prob[:,concept_index]
+
+        if k==2:
+            log_prob = log_prob.reshape(num_objs,num_objs)
 
 
         
@@ -201,6 +207,8 @@ class ConceptEmbedding(nn.Module):
         logits_and = lambda x, y: torch.min(x, y)
         logits_or = lambda x, y: torch.max(x, y)
 
+        tau = 10
+
         if not _normalized:
             q1 = q1 / q1.norm(2, dim=-1, keepdim=True)
             q2 = q2 / q2.norm(2, dim=-1, keepdim=True)
@@ -208,7 +216,7 @@ class ConceptEmbedding(nn.Module):
         if not _query_assisted_same or not self.training:
             #this is the code that runs during training. 
             margin = self._margin_cross
-            logits = ((q1 * q2).sum(dim=-1)) / self._tau
+            logits = ((q1 * q2).sum(dim=-1)) / tau
             log_probs = nn.LogSigmoid()(logits)
             return log_probs
         

@@ -50,7 +50,7 @@ class Model(ReasoningV1Model):
 
         self.attention_type = args.attention_type
 
-        self.fine_tune_resnet = args.fine_tune_resnet
+        self.fine_tune_resnet_epoch = args.fine_tune_resnet_epoch
 
 
     def get_object_lengths(self,feed_dict):
@@ -70,17 +70,18 @@ class Model(ReasoningV1Model):
 
 
         if self.attention_type=='monet':
-            f_scene = feed_dict.image
+            f_scene = feed_dict.image     
         else:
-            if self.fine_tune_resnet:
+            if feed_dict.epoch < self.fine_tune_resnet_epoch:
                 f_scene = self.resnet(feed_dict.image)
             else:
                 with torch.no_grad():
                     f_scene = self.resnet(feed_dict.image)
 
-
-        if self.attention_type=='structured-rnn-batched':
+        if self.attention_type=='structured-rnn-batched' or self.attention_type=='structured-subtractive-rnn-batched':
             f_sng = self.scene_graph(f_scene, feed_dict.objects, object_lengths,feed_dict.epoch)
+        elif self.attention_type=='scene-graph-object-supervised':
+            f_sng = self.scene_graph(f_scene, feed_dict.objects, feed_dict.objects_length)
         else:
             f_sng = self.scene_graph(f_scene, feed_dict.objects, object_lengths)
         
@@ -124,6 +125,7 @@ class Model(ReasoningV1Model):
         feed_dict = GView(feed_dict)
 
         f_scene = self.resnet(feed_dict.image)
+
 
         if self.anneal_rnn:
             f_sng = self.scene_graph(f_scene, feed_dict.objects, object_lengths,60)

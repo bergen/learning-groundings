@@ -92,7 +92,9 @@ parser.add_argument('--force-gpu', action='store_true', help='force the script t
 #scene graph
 parser.add_argument('--attention-type', default='cnn', choices=['cnn', 'naive-rnn', 'naive-rnn-batched',
                                                                 'naive-rnn-global-batched','structured-rnn-batched',
-                                                                'max-rnn-batched','low-dim-rnn-batched','monet'])
+                                                                'max-rnn-batched','low-dim-rnn-batched','monet',
+                                                                'scene-graph-object-supervised',
+                                                                'structured-subtractive-rnn-batched'])
 
 parser.add_argument('--attention-loss', type='bool', default=False)
 parser.add_argument('--anneal-rnn', type='bool', default=False)
@@ -100,12 +102,14 @@ parser.add_argument('--adversarial-loss', type='bool', default=False)
 parser.add_argument('--adversarial-lr', type=float, default=0.0002, metavar='N', help='initial learning rate')
 parser.add_argument('--presupposition-semantics', type='bool', default=False)
 parser.add_argument('--subtractive-rnn', type='bool', default=False)
+parser.add_argument('--subtract-from-scene', type='bool', default=True)
 parser.add_argument('--rnn-type', default='lstm', choices=['lstm','gru'])
 parser.add_argument('--full-recurrence', type='bool', default=True)
-parser.add_argument('--lr-cliff-epoch', type=int, default=100) #this is the epoch at which the lr will fall by factor of 0.1
+parser.add_argument('--lr-cliff-epoch', type=int, default=50) #this is the epoch at which the lr will fall by factor of 0.1
 parser.add_argument('--optimizer', default='adamw', choices=['adamw', 'rmsprop'])
-parser.add_argument('--fine-tune-resnet', type='bool', default=False)
-parser.add_argument('--resnet-type', default='resnet34', choices=['resnet34', 'resnet101','cmc_resnet'])
+parser.add_argument('--fine-tune-resnet-epoch', type=int, default=100)
+parser.add_argument('--restrict-finetuning', type='bool', default=True)
+parser.add_argument('--resnet-type', default='resnet34', choices=['resnet34', 'resnet101','cmc_resnet','simclr_resnet'])
 
 args = parser.parse_args()
 
