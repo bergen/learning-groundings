@@ -94,7 +94,8 @@ parser.add_argument('--attention-type', default='cnn', choices=['cnn', 'naive-rn
                                                                 'naive-rnn-global-batched','structured-rnn-batched',
                                                                 'max-rnn-batched','low-dim-rnn-batched','monet',
                                                                 'scene-graph-object-supervised',
-                                                                'structured-subtractive-rnn-batched'])
+                                                                'structured-subtractive-rnn-batched',
+                                                                'transformer'])
 
 parser.add_argument('--attention-loss', type='bool', default=False)
 parser.add_argument('--anneal-rnn', type='bool', default=False)
@@ -110,6 +111,7 @@ parser.add_argument('--optimizer', default='adamw', choices=['adamw', 'rmsprop']
 parser.add_argument('--fine-tune-resnet-epoch', type=int, default=100)
 parser.add_argument('--restrict-finetuning', type='bool', default=True)
 parser.add_argument('--resnet-type', default='resnet34', choices=['resnet34', 'resnet101','cmc_resnet','simclr_resnet'])
+parser.add_argument('--transformer-use-queries', type='bool', default=False)
 
 args = parser.parse_args()
 

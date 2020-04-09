@@ -18,6 +18,7 @@ import torch
 import torch.nn as nn
 import jactorch
 import jactorch.nn as jacnn
+import math
 
 from . import functional
 
@@ -485,6 +486,122 @@ class MaxRNNSceneGraphBatched(NaiveRNNSceneGraphBatched):
 
         return outputs
 
+class PositionalEncoding(nn.Module):
+
+    def __init__(self, d_model, dropout=0.1, max_len=10):
+        super(PositionalEncoding, self).__init__()
+        self.d_model = d_model
+        self.max_len = max_len
+        self.dropout = nn.Dropout(p=dropout)
+
+        
+        #self.register_buffer('pe', pe)
+
+    def forward(self, x):
+        device = x.device
+
+        div_term = torch.exp(torch.arange(0, self.d_model, 2).float() * (-math.log(10000.0) / self.d_model))
+
+        pe_x = torch.zeros(self.max_len, self.d_model)
+        position_x = torch.randint(0, 16,(self.max_len,), dtype=torch.float).unsqueeze(1)
+        pe_x[:, 0::2] = torch.sin(position_x * div_term)
+        pe_x[:, 1::2] = torch.cos(position_x * div_term)
+        pe_x = pe_x.unsqueeze(0).transpose(0, 1).to(device)
+
+        pe_y = torch.zeros(self.max_len, self.d_model)
+        position_y = torch.randint(0, 24,(self.max_len,), dtype=torch.float).unsqueeze(1)
+        pe_y[:, 0::2] = torch.sin(position_y * div_term)
+        pe_y[:, 1::2] = torch.cos(position_y * div_term)
+        pe_y = pe_y.unsqueeze(0).transpose(0, 1).to(device)
+
+
+
+
+
+        x = x + pe_x[:x.size(0), :]
+        x = x + pe_y[:x.size(0), :]
+        return self.dropout(x)
+
+class TransformerSceneGraph(NaiveRNNSceneGraphBatchedBase):
+    def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True, args=None,img_input_dim=(16,24)):
+        super().__init__(feature_dim, output_dims, downsample_rate,args=args,img_input_dim=img_input_dim)
+
+        self.use_queries = args.transformer_use_queries
+
+        self.positional_encoder = PositionalEncoding(d_model=feature_dim)
+        decoder_layer = nn.TransformerDecoderLayer(d_model=feature_dim, nhead=8,dim_feedforward=256)
+        self.transformer_decoder = nn.TransformerDecoder(decoder_layer, num_layers=4)
+
+        self.maxpool = nn.MaxPool2d(img_input_dim)
+            
+    def forward(self, input, objects, objects_length):
+        object_features = input
+        
+
+        batch_size = input.size(0)
+        max_num_objects = max(objects_length)
+       
+        outputs = list()
+        #object_features has shape batch_size x 256 x 16 x 24
+        obj_coord_map = torch.unsqueeze(coord_map((object_features.size(2),object_features.size(3)),object_features.device),dim=0)
+
+        obj_coord_map_batched = obj_coord_map.repeat(batch_size,1,1,1)
+
+        scene_object_coords_batched = torch.cat((object_features,obj_coord_map_batched), dim=1)
+
+        fused_object_coords_batched = self.object_coord_fuse(scene_object_coords_batched)
+
+
+
+
+        object_values_batched  = self.get_objects(fused_object_coords_batched, batch_size, max_num_objects)
+
+
+
+        object_representations_batched = self._norm(self.object_features_layer(object_values_batched))
+        object_pair_representations_batched = self.objects_to_pair_representations(object_representations_batched)
+
+
+        outputs = []
+        for i in range(batch_size):
+            num_objects = objects_length[i]
+            object_representations = torch.squeeze(object_representations_batched[i,0:num_objects,:],dim=0)
+            object_pair_representations = torch.squeeze(object_pair_representations_batched[i,0:num_objects,0:num_objects,:],dim=0).contiguous()
+            
+            outputs.append([
+                        None,
+                        object_representations,
+                        object_pair_representations
+                    ])
+
+
+        return outputs
+
+    def get_objects(self,fused_object_coords,batch_size,max_num_objects):
+
+        #permute to row x col x batch x feature
+        transformer_memory = fused_object_coords.permute(2,3,0,1)
+        transformer_memory = transformer_memory.reshape(-1,transformer_memory.size(2),transformer_memory.size(3))
+
+
+        transformer_input = self.maxpool(fused_object_coords).squeeze(-1).squeeze(-1)
+        transformer_input = transformer_input.unsqueeze(0).expand(max_num_objects,-1,-1)
+        transformer_input = self.positional_encoder(transformer_input)
+        transformer_output = self.transformer_decoder(transformer_input,transformer_memory)
+
+
+        if self.use_queries:
+            queries = transformer_output.permute(1,0,2)
+            attention_map_batched = torch.einsum("bij,bjkl -> bikl", queries,fused_object_coords)
+            attention_map_batched = nn.Softmax(2)(attention_map_batched.reshape(batch_size,max_num_objects,-1)).view_as(attention_map_batched)
+            objects = torch.einsum("bijk,bljk -> bil", attention_map_batched, fused_object_coords) 
+        #permute back to batch x max_num_objects x feature
+        else:
+            objects = transformer_output.permute(1,0,2)
+
+        return objects
+
+        
 
 
 class LowDimensionalRNNBatched(NaiveRNNSceneGraphBatched):

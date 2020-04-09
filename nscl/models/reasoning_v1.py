@@ -92,7 +92,8 @@ class ReasoningV1Model(nn.Module):
                             'max-rnn-batched':sng.MaxRNNSceneGraphBatched,
                             'low-dim-rnn-batched':sng.LowDimensionalRNNBatched,
                             'monet':monet.MONet,
-                            'scene-graph-object-supervised': sng.SceneGraphObjectSupervision}
+                            'scene-graph-object-supervised': sng.SceneGraphObjectSupervision,
+                            'transformer': sng.TransformerSceneGraph}
 
         try:
             if args.attention_type=='monet':
