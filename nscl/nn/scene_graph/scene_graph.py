@@ -19,6 +19,7 @@ import torch.nn as nn
 import jactorch
 import jactorch.nn as jacnn
 import math
+import torchvision
 
 from . import functional
 
@@ -486,41 +487,88 @@ class MaxRNNSceneGraphBatched(NaiveRNNSceneGraphBatched):
 
         return outputs
 
-class PositionalEncoding(nn.Module):
+class PositionalEncodingDecoder(nn.Module):
 
     def __init__(self, d_model, dropout=0.1, max_len=10):
-        super(PositionalEncoding, self).__init__()
-        self.d_model = d_model
-        self.max_len = max_len
+        super(PositionalEncodingDecoder, self).__init__()
+        self.div_term = torch.exp(torch.arange(0, d_model/2, 2).float() * (-math.log(10000.0) / (d_model/2)))
         self.dropout = nn.Dropout(p=dropout)
 
+        self.max_len = max_len
+        self.d_model = d_model
+
+        # pe = torch.zeros(max_len, d_model)
+        # position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        # pe[:, 0::2] = torch.sin(position * div_term)
+        # pe[:, 1::2] = torch.cos(position * div_term)
+        # pe = pe.unsqueeze(0).transpose(0, 1)
         
         #self.register_buffer('pe', pe)
 
     def forward(self, x):
         device = x.device
 
-        div_term = torch.exp(torch.arange(0, self.d_model, 2).float() * (-math.log(10000.0) / self.d_model))
+        # 
 
-        pe_x = torch.zeros(self.max_len, self.d_model)
-        position_x = torch.randint(0, 16,(self.max_len,), dtype=torch.float).unsqueeze(1)
-        pe_x[:, 0::2] = torch.sin(position_x * div_term)
-        pe_x[:, 1::2] = torch.cos(position_x * div_term)
+        pe_x = torch.zeros(self.max_len, (int(self.d_model/2)))
+        position_x = torch.randint(0, 24,(self.max_len,), dtype=torch.float).unsqueeze(1)
+        pe_x[:, 0::2] = torch.sin(position_x * self.div_term)
+        pe_x[:, 1::2] = torch.cos(position_x * self.div_term)
         pe_x = pe_x.unsqueeze(0).transpose(0, 1).to(device)
 
-        pe_y = torch.zeros(self.max_len, self.d_model)
-        position_y = torch.randint(0, 24,(self.max_len,), dtype=torch.float).unsqueeze(1)
-        pe_y[:, 0::2] = torch.sin(position_y * div_term)
-        pe_y[:, 1::2] = torch.cos(position_y * div_term)
+        pe_y = torch.zeros(self.max_len,  (int(self.d_model/2)))
+        position_y = torch.randint(0, 16,(self.max_len,), dtype=torch.float).unsqueeze(1)
+        pe_y[:, 0::2] = torch.sin(position_y * self.div_term)
+        pe_y[:, 1::2] = torch.cos(position_y * self.div_term)
         pe_y = pe_y.unsqueeze(0).transpose(0, 1).to(device)
 
 
+        pe = torch.cat((pe_x,pe_y),dim=2)
+
+
+        x = x + pe[:x.size(0), :]
+        return x
+
+
+class PositionalEncodingEncoder(nn.Module):
+
+    def __init__(self, d_model, dropout=0.1, max_len=10):
+        super(PositionalEncodingEncoder, self).__init__()
+        self.div_term = torch.exp(torch.arange(0, d_model/2, 2).float() * (-math.log(10000.0) / (d_model/2)))
+        self.dropout = nn.Dropout(p=dropout)
+
+        self.max_len = max_len
+        self.feature_dim = int(d_model/2)
+
+
+        pe_x = torch.zeros(24, self.feature_dim)
+        position_x = torch.arange(0, 24, dtype=torch.float).unsqueeze(1)
+        pe_x[:, 0::2] = torch.sin(position_x * self.div_term)
+        pe_x[:, 1::2] = torch.cos(position_x * self.div_term)
+        #pe_x is now (16,d_model/2)
+        pe_x = pe_x.unsqueeze(0).expand(torch.Size((16,24,self.feature_dim))).unsqueeze(0)
+
+        
+
+        pe_y = torch.zeros(16, self.feature_dim)
+        position_y= torch.arange(0, 16, dtype=torch.float).unsqueeze(1)
+        pe_y[:, 0::2] = torch.sin(position_y * self.div_term)
+        pe_y[:, 1::2] = torch.cos(position_y * self.div_term)
+        #pe_y is now (24,d_model/2)
+        pe_y = pe_y.unsqueeze(1).expand(torch.Size((16,24,self.feature_dim))).unsqueeze(0)
+
+        pe = torch.cat((pe_x,pe_y),dim=3)
+        pe = pe.permute(0,3,1,2)
+
+        self.register_buffer('pe', pe)
+
+    def forward(self, x):
 
 
 
-        x = x + pe_x[:x.size(0), :]
-        x = x + pe_y[:x.size(0), :]
-        return self.dropout(x)
+        x = x + self.pe
+        return x
+
 
 class TransformerSceneGraph(NaiveRNNSceneGraphBatchedBase):
     def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True, args=None,img_input_dim=(16,24)):
@@ -528,9 +576,13 @@ class TransformerSceneGraph(NaiveRNNSceneGraphBatchedBase):
 
         self.use_queries = args.transformer_use_queries
 
-        self.positional_encoder = PositionalEncoding(d_model=feature_dim)
-        decoder_layer = nn.TransformerDecoderLayer(d_model=feature_dim, nhead=8,dim_feedforward=256)
-        self.transformer_decoder = nn.TransformerDecoder(decoder_layer, num_layers=4)
+        self.positional_encoding_decoder = PositionalEncodingDecoder(d_model=feature_dim)
+        self.positional_encoding_encoder = PositionalEncodingEncoder(d_model=feature_dim)
+        decoder_layer = nn.TransformerDecoderLayer(d_model=feature_dim, nhead=8,dim_feedforward=512)
+        self.transformer_decoder = nn.TransformerDecoder(decoder_layer, num_layers=3)
+
+        encoder_layer = nn.TransformerEncoderLayer(d_model=feature_dim, nhead=8,dim_feedforward=512)
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=3)
 
         self.maxpool = nn.MaxPool2d(img_input_dim)
             
@@ -543,13 +595,9 @@ class TransformerSceneGraph(NaiveRNNSceneGraphBatchedBase):
        
         outputs = list()
         #object_features has shape batch_size x 256 x 16 x 24
-        obj_coord_map = torch.unsqueeze(coord_map((object_features.size(2),object_features.size(3)),object_features.device),dim=0)
+        
 
-        obj_coord_map_batched = obj_coord_map.repeat(batch_size,1,1,1)
-
-        scene_object_coords_batched = torch.cat((object_features,obj_coord_map_batched), dim=1)
-
-        fused_object_coords_batched = self.object_coord_fuse(scene_object_coords_batched)
+        fused_object_coords_batched = self.positional_encoding_encoder(object_features)
 
 
 
@@ -579,14 +627,25 @@ class TransformerSceneGraph(NaiveRNNSceneGraphBatchedBase):
 
     def get_objects(self,fused_object_coords,batch_size,max_num_objects):
 
-        #permute to row x col x batch x feature
-        transformer_memory = fused_object_coords.permute(2,3,0,1)
-        transformer_memory = transformer_memory.reshape(-1,transformer_memory.size(2),transformer_memory.size(3))
 
+        
+        transformer_memory = fused_object_coords.reshape(fused_object_coords.size(0),fused_object_coords.size(1),-1)
 
+        #permute to (row x col) x batch x feature
+        transformer_memory = transformer_memory.permute(2,0,1)
+
+        transformer_memory = self.transformer_encoder(transformer_memory)
+
+        # if self.roi_pool:
+        #     boxes = []
+        #     for i in range(batch_size):
+        #         for j in range(max_num_objects):
+        #             x_left
+        #             boxes.append([i,random.randint(0,15),random.randint(0,23)])
+        # else:
         transformer_input = self.maxpool(fused_object_coords).squeeze(-1).squeeze(-1)
         transformer_input = transformer_input.unsqueeze(0).expand(max_num_objects,-1,-1)
-        transformer_input = self.positional_encoder(transformer_input)
+        transformer_input = self.positional_encoding_decoder(transformer_input)
         transformer_output = self.transformer_decoder(transformer_input,transformer_memory)
 
 
