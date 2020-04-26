@@ -22,6 +22,8 @@ import jactorch.nn as jacnn
 import math
 import torchvision
 
+from . import hourglass
+
 from . import functional
 
 DEBUG = bool(int(os.getenv('DEBUG_SCENE_GRAPH', 0)))
@@ -1233,21 +1235,35 @@ class SceneGraphObjectSupervision(nn.Module):
     def _norm(self, x):
         return x / x.norm(2, dim=-1, keepdim=True)
 
+
+class Residual(nn.Module):
+    def __init__(self, inp_dim, out_dim):
+        super(Residual, self).__init__()
+        self.relu = nn.ReLU()
+        self.conv1 = nn.Conv2d(inp_dim, out_dim, padding=2, kernel_size=5, bias=True)
+        self.conv2 = nn.Conv2d(out_dim, out_dim, padding=2, kernel_size=5, bias=True)
+        self.conv3 = nn.Conv2d(out_dim, out_dim, padding=2, kernel_size=5, bias=True)
+        self.conv4 = nn.Conv2d(out_dim, 1, padding=2, kernel_size=5, bias=True)
+
+    def forward(self, x):
+        residual = x
+        out = self.conv1(x)
+        out = self.relu(out)
+        out = self.conv2(out)
+        out = self.relu(out)
+        out = self.conv3(out)
+        out = self.relu(out)
+        out += residual
+        out = self.conv4(out)
+        return out 
+
         
 class MonetLiteSceneGraph(NaiveRNNSceneGraphBatchedBase):
     def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True, args=None,img_input_dim=(16,24)):
         super().__init__(feature_dim, output_dims, downsample_rate,args=args,img_input_dim=img_input_dim)
 
-        self.attention_net = nn.Sequential(
-                nn.Conv2d(feature_dim+1, feature_dim, kernel_size=5, padding=2, bias=True),
-                nn.ReLU(),
-                nn.Conv2d(feature_dim, feature_dim, kernel_size=5, stride=1, padding=2, bias=True),
-                nn.ReLU(),
-                nn.Conv2d(feature_dim, feature_dim, kernel_size=5, stride=1, padding=2, bias=True),
-                nn.ReLU(),
-                nn.Conv2d(feature_dim, 1, kernel_size=5, stride=1, padding=2, bias=True))
-
-        self.attention_net[-1].bias.data.fill_(-2.19)
+        self.attention_net = Residual(feature_dim+1,feature_dim+1)
+        self.attention_net.conv4.bias.data.fill_(-2.19)
 
         self.feature_net = nn.Sequential(nn.Conv2d(feature_dim,feature_dim,kernel_size=1), nn.ReLU())
             
@@ -1303,6 +1319,7 @@ class MonetLiteSceneGraph(NaiveRNNSceneGraphBatchedBase):
             #if slot < max_num_objects - 1:
             x = torch.cat((object_features,log_scope),dim=1)
             log_attention = self.attention_net(x)
+
             log_scope = log_scope + F.logsigmoid(-log_attention)
             #else:
             #    log_mask = log_scope
