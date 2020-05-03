@@ -1240,21 +1240,21 @@ class Residual(nn.Module):
     def __init__(self, inp_dim, out_dim):
         super(Residual, self).__init__()
         self.relu = nn.ReLU()
-        self.conv1 = nn.Conv2d(inp_dim, out_dim, padding=2, kernel_size=5, bias=True)
-        self.conv2 = nn.Conv2d(out_dim, out_dim, padding=2, kernel_size=5, bias=True)
-        self.conv3 = nn.Conv2d(out_dim, out_dim, padding=2, kernel_size=5, bias=True)
-        self.conv4 = nn.Conv2d(out_dim, 1, padding=2, kernel_size=5, bias=True)
+        self.residual_conv = nn.Conv2d(inp_dim, 1, padding=2, kernel_size=5, bias=True)
+        self.conv1 = nn.Conv2d(inp_dim, int(out_dim/2), padding=3, kernel_size=7, bias=True)
+        self.conv2 = nn.Conv2d(int(out_dim/2), int(out_dim/2), padding=3, kernel_size=7, bias=True)
+        self.conv4 = nn.Conv2d(int(out_dim/2), 1, padding=2, kernel_size=5, bias=True)
 
     def forward(self, x):
-        residual = x
+        residual = self.residual_conv(x)
         out = self.conv1(x)
         out = self.relu(out)
         out = self.conv2(out)
+        #out = self.relu(out)
+        #out = self.conv3(out)
         out = self.relu(out)
-        out = self.conv3(out)
-        out = self.relu(out)
-        out += residual
         out = self.conv4(out)
+        out = out + residual
         return out 
 
         

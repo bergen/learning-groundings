@@ -27,7 +27,7 @@ from jacinle.utils.tqdm import tqdm_pbar
 
 from jactorch.cli import escape_desc_name, ensure_path, dump_metainfo
 from jactorch.cuda.copy import async_copy_to
-from jactorch.train import TrainerEnv
+import TrainerEnv
 from jactorch.utils.meta import as_float
 
 from nscl.datasets import get_available_datasets, initialize_dataset, get_dataset_builder
@@ -266,7 +266,7 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
         optimizer = AccumGrad(optimizer, args.acc_grad)
         logger.warning('Use accumulated grad={:d}, effective iterations per epoch={:d}.'.format(args.acc_grad, int(args.iters_per_epoch / args.acc_grad)))
 
-    trainer = TrainerEnv(model, optimizer)
+    trainer = TrainerEnv.TrainerEnv(model, optimizer)
 
     if args.resume:
         extra = trainer.load_checkpoint(args.resume)
@@ -320,7 +320,7 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
     elif args.curriculum=='accelerated':
         curriculum_strategy = [
             (0, 3, 4),
-            (5, 3, 6),
+            (5, 3, 8),
             (10, 4, 8),
             (15, 5, 12),
             (20, 6, 12),
@@ -513,8 +513,11 @@ def train_epoch(epoch, trainer, train_dataloader, meters,model,adversarial_train
 
             loss, monitors, output_dict, extra_info = trainer.step(feed_dict, cast_tensor=False)
 
-            gradient_magnitude = get_model_gradient_magnitude(model)
-            gradient_magnitudes[epoch].append(gradient_magnitude)
+            try:
+                gradient_magnitude = get_model_gradient_magnitude(model)
+                gradient_magnitudes[epoch].append(gradient_magnitude)
+            except Exception as e:
+                pass
 
 
             if adversarial_trainer is not None:

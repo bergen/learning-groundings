@@ -136,7 +136,7 @@ class QALoss(MultitaskLossBase):
         except Exception as e:
             self.presupposition_semantics = False
 
-        self.bool_threshold = 0.02
+        self.bool_threshold = 0.3
 
     def forward(self, feed_dict, answers, question_index=None, loss_weights=None, accuracy_weights=None):
         """

@@ -64,10 +64,13 @@ class MultitaskLossBase(nn.Module):
     def _bce_loss(self, pred, label):
         #pred is log probability of label 1
         if pred.item()==0: #this only occurs when label==1
-            return pred
+            return -pred
 
         complement_prob = torch.log(1-torch.exp(pred))
-        return -(label*pred + (1-label)*complement_prob)
+        if complement_prob.item()==float("-inf"):
+            return -label*pred
+        else:
+            return -(label*pred + (1-label)*complement_prob)
 
     def _xent_loss(self, pred, label):
         return -pred[label].mean()

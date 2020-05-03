@@ -115,6 +115,9 @@ class ConceptEmbedding(nn.Module):
         self.margin = nn.Parameter(torch.tensor(0.0, requires_grad=False))
         self.tau = nn.Parameter(torch.tensor(0.1, requires_grad=False))
 
+        self.relation_margin = nn.Parameter(torch.tensor(0.0, requires_grad=True))
+        self.relation_tau = nn.Parameter(torch.tensor(0.1, requires_grad=True))
+
     @property
     def nr_attributes(self):
         return len(self.all_attributes)
@@ -174,23 +177,38 @@ class ConceptEmbedding(nn.Module):
     def similarity(self, query, identifier,k=1):
         #identifier is a concept
         #returns a list of log probabilities: prob that each object is the concept
-        if k==2:
-            num_objs = query.size(0)
-            query = query.reshape(-1,query.size(-1))
+
+        #note that there is a separate attributes list for one-place predicates and two-place predicates (relations). this means self.all_attributes is different for the two.
+    
 
         attributes = self.all_attributes
         concept = self.get_concept(identifier)
         attribute_index = concept.belong.argmax(-1).item()
-        
-        prob, word2ix = self.query_attribute(query,attributes[attribute_index])
+
+        if k==1: #one place predicate
+            prob, word2ix = self.query_attribute(query,attributes[attribute_index])
 
 
-        concept_index = word2ix[identifier]
+            concept_index = word2ix[identifier]
 
-        log_prob = prob[:,concept_index]
+            log_prob = prob[:,concept_index]
 
-        if k==2:
+        elif k==2: #two-place relation
+            num_objs = query.size(0)
+            query = query.reshape(-1,query.size(-1))
+
+            attr_identifier = attributes[attribute_index]
+            mapping = self.get_attribute(attr_identifier)
+            attr_id = self.attribute2id[attr_identifier]
+            
+            query = mapping(query)
+            query = query / query.norm(2, dim=-1, keepdim=True)
+            concept_embedding = concept.normalized_embedding[attr_id]
+            logits = (torch.matmul(query,concept_embedding)+self.relation_margin)/self.relation_tau
+            log_prob = nn.LogSigmoid()(logits)
+
             log_prob = log_prob.reshape(num_objs,num_objs)
+            
 
 
         
@@ -207,7 +225,7 @@ class ConceptEmbedding(nn.Module):
         logits_and = lambda x, y: torch.min(x, y)
         logits_or = lambda x, y: torch.max(x, y)
 
-        tau = 10
+        tau = 0.1
 
         if not _normalized:
             q1 = q1 / q1.norm(2, dim=-1, keepdim=True)
@@ -230,6 +248,10 @@ class ConceptEmbedding(nn.Module):
         query = query / query.norm(2, dim=-1, keepdim=True)
         q1, q2 = jactorch.meshgrid(query, dim=-2)
         #q1, q2 are used as all pairs of objects
+        #q1 is num_objects x num_objects x embedding_dim
+        #q2 is num_objects x num_objects x embedding_dim
+        
+
 
         return self.similarity2(q1, q2, identifier, _normalized=True)
 
@@ -248,18 +270,24 @@ class ConceptEmbedding(nn.Module):
         num_objs = query.size(0)
 
         word2idx = {}
-        masks = []
+        ignore_mask = torch.zeros((num_objs,len(concepts)),dtype=torch.float32).to(query.device)
+        constant_embedding = torch.zeros((query.size(1),),dtype=torch.float32).to(query.device)
+        embeddings = []
+
+        i=0
         for k, v in concepts.items(): 
             belong_score = v.log_normalized_belong[attr_id]
             if belong_score < -50: #this concept does not belong to this attribute
-                mask = -100.0*torch.ones((num_objs,),dtype=torch.float32).to(query.device)
+                #mask = -100.0*torch.ones((num_objs,),dtype=torch.float32).to(query.device)
+                ignore_mask[:,i] = -100.0
+                embedding = constant_embedding
 
             else:
-
                 embedding = v.normalized_embedding[attr_id]
-                embedding = jactorch.add_dim_as_except(embedding, query, -1)
 
-                mask = ((query * embedding).sum(dim=-1) + self.margin)/self.tau
+                #embedding = jactorch.add_dim_as_except(embedding, query, -1)
+
+                #mask = ((query * embedding).sum(dim=-1) + self.margin)/self.tau
                 #mask is 1xnum_objs
 
 
@@ -268,10 +296,15 @@ class ConceptEmbedding(nn.Module):
 
             #mask is a num_objects list of log probabilities: the log probability that each object satisfies the concept
 
-            masks.append(mask)
+            #masks.append(mask)
+            embeddings.append(embedding)
             word2idx[k] = len(word2idx)
+            i = i+1
 
-        masks = torch.stack(masks, dim=-1)
+        embeddings = torch.stack(embeddings,dim=1)
+        masks = (torch.matmul(query,embeddings)+self.margin)/self.tau
+        masks = masks + ignore_mask
+        #masks = torch.stack(masks, dim=-1)
         normalizing_constant = torch.logsumexp(masks,dim=1,keepdim=True)
         #we normalize the probabilities for each object: each object can only satisfy a single concept
         
