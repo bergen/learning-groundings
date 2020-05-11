@@ -65,7 +65,7 @@ def set_test_quantize(mode):
 
 
 class ProgramExecutorContext(nn.Module):
-    def __init__(self, attribute_taxnomy, relation_taxnomy, features, presupposition_semantics, parameter_resolution, count_margin, count_tau, training=True):
+    def __init__(self, attribute_taxnomy, relation_taxnomy, features, presupposition_semantics, parameter_resolution, count_params, training=True):
         super().__init__()
 
         self.features = features
@@ -82,8 +82,11 @@ class ProgramExecutorContext(nn.Module):
 
         self.presupposition_semantics = presupposition_semantics
 
-        self._count_margin = count_margin
-        self._count_tau = count_tau
+        self._count_margin = count_params['count_margin']
+        self._count_tau = count_params['count_tau']
+
+        self._count_equal_margin = count_params['count_equal_margin']
+        self._count_equal_tau = count_params['count_equal_tau']
 
         
 
@@ -173,8 +176,8 @@ class ProgramExecutorContext(nn.Module):
         if self.training:
             return torch.exp(selected).sum(dim=-1)
         else:
-            #return (selected > math.log(0.8)).float().sum()
-            return torch.exp(selected).sum(dim=-1).round()
+            return (selected > math.log(0.5)).float().sum()
+            #return torch.exp(selected).sum(dim=-1).round()
 
     
 
@@ -187,9 +190,9 @@ class ProgramExecutorContext(nn.Module):
         #b = torch.logsumexp(selected2,dim=0)
 
         if self.training:
-            return nn.LogSigmoid()(((a - b + self._count_margin) / self._count_tau))
+            return nn.LogSigmoid()(((self._count_margin + a - b ) / self._count_tau))
         else:
-            return nn.LogSigmoid()(((a - b + self._count_margin) / self._count_tau))
+            return nn.LogSigmoid()(((self._count_margin + a - b ) / self._count_tau))
         #else:
         #    return nn.LogSigmoid()(-10 + 20 * (self.count(selected1) > self.count(selected2)).float()) #this is probably wrong
 
@@ -203,9 +206,9 @@ class ProgramExecutorContext(nn.Module):
         #a = torch.logsumexp(selected1,dim=0)
         #b = torch.logsumexp(selected2,dim=0)
         if self.training or _test_quantize.value < InferenceQuantizationMethod.STANDARD.value:
-            return nn.LogSigmoid()(((self._count_margin - (a - b).abs()) / (self._count_margin) / self._count_tau))
+            return nn.LogSigmoid()(((self._count_equal_margin - (a - b).abs()) / (self._count_equal_margin) / self._count_equal_tau))
         else:
-            return nn.LogSigmoid()(((self._count_margin - (a - b).abs()) / (self._count_margin) / self._count_tau))
+            return nn.LogSigmoid()(((self._count_equal_margin - (a - b).abs()) / (self._count_equal_margin) / self._count_equal_tau))
 
     def query(self, selected, group, attribute_groups):
 
@@ -306,8 +309,12 @@ class DifferentiableReasoning(nn.Module):
         self.hidden_dims = hidden_dims
         self.parameter_resolution = parameter_resolution
 
-        self._count_margin = nn.Parameter(torch.tensor(0.25, requires_grad=True))
+        self._count_margin = nn.Parameter(torch.tensor(-0.25, requires_grad=True))
         self._count_tau = nn.Parameter(torch.tensor(0.25, requires_grad=True))
+        self._count_equal_margin = nn.Parameter(torch.tensor(0.25, requires_grad=True))
+        self._count_equal_tau = nn.Parameter(torch.tensor(0.25, requires_grad=True))
+
+        self.count_params = {'count_margin':self._count_margin,'count_tau':self._count_tau,'count_equal_margin':self._count_equal_margin,'count_equal_tau':self._count_equal_tau}
 
 
         try:
@@ -358,7 +365,7 @@ class DifferentiableReasoning(nn.Module):
 
 
 
-            ctx = ProgramExecutorContext(self.embedding_attribute, self.embedding_relation, features, self.presupposition_semantics, parameter_resolution=self.parameter_resolution, training=self.training, count_margin = self._count_margin, count_tau=self._count_tau)
+            ctx = ProgramExecutorContext(self.embedding_attribute, self.embedding_relation, features, self.presupposition_semantics, parameter_resolution=self.parameter_resolution, training=self.training, count_params = self.count_params)
 
             for block_id, block in enumerate(prog):
                 op = block['op']

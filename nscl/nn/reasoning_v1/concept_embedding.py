@@ -202,9 +202,9 @@ class ConceptEmbedding(nn.Module):
             attr_id = self.attribute2id[attr_identifier]
             
             query = mapping(query)
-            query = query / query.norm(2, dim=-1, keepdim=True)
-            concept_embedding = concept.normalized_embedding[attr_id]
-            logits = (torch.matmul(query,concept_embedding)+self.relation_margin)/self.relation_tau
+            #query = query / query.norm(2, dim=-1, keepdim=True)
+            concept_embedding = concept.embedding[attr_id]
+            logits = (torch.matmul(query,concept_embedding)+self.relation_margin)
             log_prob = nn.LogSigmoid()(logits)
 
             log_prob = log_prob.reshape(num_objs,num_objs)

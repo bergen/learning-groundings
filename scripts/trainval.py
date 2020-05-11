@@ -43,7 +43,7 @@ parser.add_argument('--configs', default='', type='kv', metavar='CFGS')
 parser.add_argument('--expr', default=None, metavar='DIR', help='experiment name')
 parser.add_argument('--training-target', required=True, choices=['derender', 'parser', 'all'])
 parser.add_argument('--training-visual-modules', default='all', choices=['none', 'object', 'relation', 'all'])
-parser.add_argument('--curriculum', default='all', choices=['off', 'scene', 'program', 'all','restricted','accelerated','intermediate','simple_syntax'])
+parser.add_argument('--curriculum', default='all', choices=['off', 'scene', 'program', 'all','restricted','accelerated','intermediate','simple_syntax','fastersyntax'])
 parser.add_argument('--question-transform', default='off', choices=['off', 'basic', 'parserv1-groundtruth', 'parserv1-candidates', 'parserv1-candidates-executed'])
 parser.add_argument('--concept-quantization-json', default=None, metavar='FILE')
 
@@ -113,6 +113,7 @@ parser.add_argument('--fine-tune-resnet-epoch', type=int, default=100)
 parser.add_argument('--restrict-finetuning', type='bool', default=True)
 parser.add_argument('--resnet-type', default='resnet34', choices=['resnet34', 'resnet101','cmc_resnet','simclr_resnet'])
 parser.add_argument('--transformer-use-queries', type='bool', default=False)
+parser.add_argument('--filter-ops', type='bool', default=False)
 
 args = parser.parse_args()
 
@@ -307,6 +308,9 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
 
 
     # assert args.curriculum == 'off', 'Unimplemented feature: curriculum mode {}.'.format(args.curriculum)
+    remove_ops = None
+    if args.filter_ops:
+        remove_ops = ['relate_attribute_equal','query_attribute_equal']
     if args.curriculum=='restricted':
         curriculum_strategy = [
             (0, 3, 4),
@@ -343,6 +347,19 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
             (80, 10, 25),
             (1e9, None, None)
         ]
+    elif args.curriculum=='fastersyntax':
+        curriculum_strategy = [
+            (0, 3, 8),
+            (10, 3, 12),
+            (20, 4, 12),
+            (30, 5, 12),
+            (40, 6, 12),
+            (50, 7, 16),
+            (60, 8, 20),
+            (70, 9, 22),
+            (80, 10, 25),
+            (1e9, None, None)
+        ]
     elif args.curriculum=='simple_syntax':
         curriculum_strategy = [
             (0, 3, 4),
@@ -354,6 +371,11 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
             (60, 9, 4),
             (70, 10, 4),
             (80, 10, 25),
+            (1e9, None, None)
+        ]
+    elif args.curriculum=='all':
+        curriculum_strategy = [
+            (0, 10, 25),
             (1e9, None, None)
         ]
     else:
@@ -411,6 +433,8 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
                     max_scene_size, max_program_size = s[1:]
                     this_train_dataset = this_train_dataset.filter_scene_size(max_scene_size)
                     this_train_dataset = this_train_dataset.filter_program_size_raw(max_program_size)
+                    if remove_ops is not None:
+                        this_train_dataset = this_train_dataset.filter_question_type(disallowed=remove_ops)
                     logger.critical('Building the data loader. Curriculum = {}/{}, length = {}.'.format(*s[1:], len(this_train_dataset)))
                     break
 
