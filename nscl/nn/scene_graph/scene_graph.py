@@ -1277,7 +1277,7 @@ class MonetLiteSceneGraph(NaiveRNNSceneGraphBatchedBase):
 
         self.object_features_layer = nn.Sequential(nn.Linear(2*feature_dim,output_dims[1]),nn.ReLU())
 
-        self.combine_objects = nn.Sequential(nn.Linear(2*output_dims[1],output_dims[1]),nn.ReLU())
+        self.combine_objects = nn.Linear(2*output_dims[1],output_dims[1])
             
     def forward(self, input, objects, objects_length):
         object_features = input
