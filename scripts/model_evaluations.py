@@ -20,7 +20,7 @@ from jaclearn.visualize.box import vis_bboxes
 from jacinle.utils.imp import load_source
 from jactorch.train import TrainerEnv
 from jaclearn.visualize.html_table import HTMLTableVisualizer, HTMLTableColumnDesc
-from nscl.datasets import get_available_symbolic_datasets, initialize_dataset, get_symbolic_dataset_builder, get_dataset_builder
+from nscl.datasets import get_available_symbolic_datasets, initialize_dataset, get_symbolic_dataset_builder, get_dataset_builder,get_available_datasets
 from nscl.datasets.common.vocab import Vocab
 
 from torch import nn
@@ -31,29 +31,70 @@ import csv
 
 logger = get_logger(__file__)
 
-
 parser = JacArgumentParser()
-parser.add_argument('--dataset', required=True, choices=get_available_symbolic_datasets(), help='dataset')
-parser.add_argument('--data-dir', required=True)
-parser.add_argument('--data-scenes-json', type='checked_file')
-parser.add_argument('--data-questions-json', type='checked_file')
-parser.add_argument('--data-vocab-json', type='checked_file')
-parser.add_argument('-n', '--nr-vis', type=int, help='number of visualized questions')
-parser.add_argument('--random', type='bool', default=False, help='random choose the questions')
-parser.add_argument('--load', type='checked_file', default=None, metavar='FILE', help='load the weights from a pretrained model (default: none)')
 
+parser.add_argument('--desc', required=True, type='checked_file', metavar='FILE')
+parser.add_argument('--configs', default='', type='kv', metavar='CFGS')
+
+# training_target and curriculum learning
+parser.add_argument('--expr', default=None, metavar='DIR', help='experiment name')
+parser.add_argument('--training-visual-modules', default='all', choices=['none', 'object', 'relation', 'all'])
+parser.add_argument('--curriculum', default='all', choices=['off', 'scene', 'program', 'all','restricted','accelerated','intermediate','simple_syntax','fastersyntax'])
+parser.add_argument('--question-transform', default='off', choices=['off', 'basic', 'parserv1-groundtruth', 'parserv1-candidates', 'parserv1-candidates-executed'])
+parser.add_argument('--concept-quantization-json', default=None, metavar='FILE')
+
+# running mode
+parser.add_argument('--debug', action='store_true', help='debug mode')
+parser.add_argument('--evaluate', action='store_true', help='run the validation only; used with --resume')
+
+
+parser.add_argument('-n', '--nr-vis', type=int, help='number of visualized questions')
+# training hyperparameters
+parser.add_argument('--epochs', type=int, default=10, metavar='N', help='number of total epochs to run')
+parser.add_argument('--enums-per-epoch', type=int, default=1, metavar='N', help='number of enumerations of the whole dataset per epoch')
+parser.add_argument('--batch-size', type=int, default=64, metavar='N', help='batch size')
+parser.add_argument('--lr', type=float, default=0.001, metavar='N', help='initial learning rate')
+parser.add_argument('--iters-per-epoch', type=int, default=0, metavar='N', help='number of iterations per epoch 0=one pass of the dataset (default: 0)')
+parser.add_argument('--acc-grad', type=int, default=1, metavar='N', help='accumulated gradient (default: 1)')
+parser.add_argument('--clip-grad', type=float, metavar='F', help='gradient clipping')
+parser.add_argument('--validation-interval', type=int, default=1, metavar='N', help='validation inverval (epochs) (default: 1)')
+
+# finetuning and snapshot
+parser.add_argument('--load', type='checked_file', default=None, metavar='FILE', help='load the weights from a pretrained model (default: none)')
+parser.add_argument('--resume', type='checked_file', default=None, metavar='FILE', help='path to latest checkpoint (default: none)')
+parser.add_argument('--start-epoch', type=int, default=0, metavar='N', help='manual epoch number')
+parser.add_argument('--save-interval', type=int, default=2, metavar='N', help='model save interval (epochs) (default: 10)')
+
+# data related
+parser.add_argument('--dataset', required=True, choices=get_available_datasets(), help='dataset')
+parser.add_argument('--data-dir', required=True, type='checked_dir', metavar='DIR', help='data directory')
+parser.add_argument('--data-trim', type=float, default=0, metavar='F', help='trim the dataset')
+parser.add_argument('--data-split',type=float, default=0.75, metavar='F', help='fraction / numer of training samples')
+parser.add_argument('--data-vocab-json', type='checked_file', metavar='FILE')
+parser.add_argument('--data-scenes-json', type='checked_file', metavar='FILE')
+parser.add_argument('--data-questions-json', type='checked_file', metavar='FILE', nargs='+')
+parser.add_argument('--visualize-attention', type='bool', default=False)
 parser.add_argument('--extra-data-dir', type='checked_dir', metavar='DIR', help='extra data directory for validation')
 parser.add_argument('--extra-data-scenes-json', type='checked_file', nargs='+', default=None, metavar='FILE', help='extra scene json file for validation')
 parser.add_argument('--extra-data-questions-json', type='checked_file', nargs='+', default=None, metavar='FILE', help='extra question json file for validation')
 
-parser.add_argument('--visualize-attention', type='bool', default=False)
-parser.add_argument('--desc', type='checked_file', metavar='FILE')
-parser.add_argument('--configs', default='', type='kv', metavar='CFGS')
-parser.add_argument('--resume', type='checked_file', default=None, metavar='FILE', help='path to latest checkpoint (default: none)')
+parser.add_argument('--data-workers', type=int, default=4, metavar='N', help='the num of workers that input training data')
+
+# misc
+parser.add_argument('--use-gpu', type='bool', default=True, metavar='B', help='use GPU or not')
+parser.add_argument('--use-tb', type='bool', default=False, metavar='B', help='use tensorboard or not')
+parser.add_argument('--embed', action='store_true', help='entering embed after initialization')
+parser.add_argument('--force-gpu', action='store_true', help='force the script to use GPUs, useful when there exists on-the-ground devices')
 
 
+#scene graph
 parser.add_argument('--attention-type', default='cnn', choices=['cnn', 'naive-rnn', 'naive-rnn-batched',
-                                                                'naive-rnn-global-batched','structured-rnn-batched','max-rnn-batched'])
+                                                                'naive-rnn-global-batched','structured-rnn-batched',
+                                                                'max-rnn-batched','low-dim-rnn-batched','monet',
+                                                                'scene-graph-object-supervised',
+                                                                'structured-subtractive-rnn-batched',
+                                                                'transformer',
+                                                                'monet-lite'])
 
 parser.add_argument('--attention-loss', type='bool', default=False)
 parser.add_argument('--anneal-rnn', type='bool', default=False)
@@ -61,6 +102,16 @@ parser.add_argument('--adversarial-loss', type='bool', default=False)
 parser.add_argument('--adversarial-lr', type=float, default=0.0002, metavar='N', help='initial learning rate')
 parser.add_argument('--presupposition-semantics', type='bool', default=False)
 parser.add_argument('--subtractive-rnn', type='bool', default=False)
+parser.add_argument('--subtract-from-scene', type='bool', default=True)
+parser.add_argument('--rnn-type', default='lstm', choices=['lstm','gru'])
+parser.add_argument('--full-recurrence', type='bool', default=True)
+parser.add_argument('--lr-cliff-epoch', type=int, default=50) #this is the epoch at which the lr will fall by factor of 0.1
+parser.add_argument('--optimizer', default='adamw', choices=['adamw', 'rmsprop'])
+parser.add_argument('--fine-tune-resnet-epoch', type=int, default=100)
+parser.add_argument('--restrict-finetuning', type='bool', default=True)
+parser.add_argument('--resnet-type', default='resnet34', choices=['resnet34', 'resnet101','cmc_resnet','simclr_resnet'])
+parser.add_argument('--transformer-use-queries', type='bool', default=False)
+parser.add_argument('--filter-ops', type='bool', default=False)
 
 args = parser.parse_args()
 
@@ -232,7 +283,7 @@ def graph_accuracy(model, feed_dict):
         inf_obj = inferred[assignment[i]]
         proportion_correct = len([k for k in gt_obj.keys() if gt_obj[k]==inf_obj[k]])/len(gt_obj.keys())
 
-        print(len([k for k in gt_obj.keys() if gt_obj[k]==inf_obj[k]]))
+        print(proportion_correct)
 
 
         accuracies.append(proportion_correct)

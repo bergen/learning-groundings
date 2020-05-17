@@ -65,7 +65,7 @@ def set_test_quantize(mode):
 
 
 class ProgramExecutorContext(nn.Module):
-    def __init__(self, attribute_taxnomy, relation_taxnomy, features, presupposition_semantics, parameter_resolution, count_params, training=True):
+    def __init__(self, attribute_taxnomy, relation_taxnomy, features, presupposition_semantics, parameter_resolution, count_params=None, training=True):
         super().__init__()
 
         self.features = features
@@ -82,11 +82,13 @@ class ProgramExecutorContext(nn.Module):
 
         self.presupposition_semantics = presupposition_semantics
 
-        self._count_margin = count_params['count_margin']
-        self._count_tau = count_params['count_tau']
+        #self._count_margin = count_params['count_margin']
+        
+        #self._count_tau = count_params['count_tau']
 
-        self._count_equal_margin = count_params['count_equal_margin']
-        self._count_equal_tau = count_params['count_equal_tau']
+        #self._count_equal_margin = count_params['count_equal_margin']
+        
+        #self._count_equal_tau = count_params['count_equal_tau']
 
         
 
@@ -309,12 +311,12 @@ class DifferentiableReasoning(nn.Module):
         self.hidden_dims = hidden_dims
         self.parameter_resolution = parameter_resolution
 
-        self._count_margin = nn.Parameter(torch.tensor(-0.25, requires_grad=True))
-        self._count_tau = nn.Parameter(torch.tensor(0.25, requires_grad=True))
-        self._count_equal_margin = nn.Parameter(torch.tensor(0.25, requires_grad=True))
-        self._count_equal_tau = nn.Parameter(torch.tensor(0.25, requires_grad=True))
+        #self._count_margin = nn.Parameter(torch.tensor(-0.25, requires_grad=True))
+        #self._count_tau = nn.Parameter(torch.tensor(0.25, requires_grad=True))
+        #self._count_equal_margin = nn.Parameter(torch.tensor(0.25, requires_grad=True))
+        #self._count_equal_tau = nn.Parameter(torch.tensor(0.25, requires_grad=True))
 
-        self.count_params = {'count_margin':self._count_margin,'count_tau':self._count_tau,'count_equal_margin':self._count_equal_margin,'count_equal_tau':self._count_equal_tau}
+        #self.count_params = {'count_margin':self._count_margin,'count_tau':self._count_tau,'count_equal_margin':self._count_equal_margin,'count_equal_tau':self._count_equal_tau}
 
 
         try:
@@ -365,7 +367,7 @@ class DifferentiableReasoning(nn.Module):
 
 
 
-            ctx = ProgramExecutorContext(self.embedding_attribute, self.embedding_relation, features, self.presupposition_semantics, parameter_resolution=self.parameter_resolution, training=self.training, count_params = self.count_params)
+            ctx = ProgramExecutorContext(self.embedding_attribute, self.embedding_relation, features, self.presupposition_semantics, parameter_resolution=self.parameter_resolution, training=self.training)#, count_params = self.count_params)
 
             for block_id, block in enumerate(prog):
                 op = block['op']

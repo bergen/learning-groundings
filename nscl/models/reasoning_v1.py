@@ -34,7 +34,7 @@ def make_reasoning_v1_configs():
     configs.model.vse_known_belong = True
     configs.model.vse_large_scale = False
     configs.model.vse_ls_load_concept_embeddings = False
-    configs.model.vse_hidden_dims = [None, 64, 64]
+    configs.model.vse_hidden_dims = [None, 128, 128]
 
     # model configs for parser
     configs.model.word_embedding_dim = 300
@@ -62,7 +62,7 @@ class ReasoningV1Model(nn.Module):
 
         import jactorch.models.vision.resnet as resnet
         from nscl.models.cmc_resnet import load_pretrained_cmc
-        from nscl.models.simclr_resnet import load_pretrained_simclr
+        from nscl.models.simclr import load_pretrained_simclr
         resnet_dict = {'resnet34':resnet.resnet34, 'resnet101':resnet.resnet101}
         
 
@@ -73,12 +73,24 @@ class ReasoningV1Model(nn.Module):
                 self.resnet.encoder.module.ab_to_l.layer3.requires_grad = False
         elif self.resnet_type=='simclr_resnet':
             self.resnet = load_pretrained_simclr()
+            if args.restrict_finetuning:
+                self.resnet.layer2.requires_grad = False
+                self.resnet.layer1.requires_grad = False
+                self.resnet.conv1.requires_grad = False
+                i=0
+                for module in self.resnet.layer3:
+                    if i<4:
+                        module.requires_grad = False
+                    i+=1
         else:
             resnet_model = resnet_dict[self.resnet_type]
             self.resnet = resnet_model(pretrained=True, incl_gap=False, num_classes=None)
             self.resnet.layer4 = jacnn.Identity()
             if args.restrict_finetuning:
                 self.resnet.layer2.requires_grad = False
+                self.resnet.layer1.requires_grad = False
+                self.resnet.conv1.requires_grad = False
+                
 
         import nscl.nn.scene_graph.scene_graph as sng
         import nscl.nn.scene_graph.monet as monet
@@ -110,7 +122,7 @@ class ReasoningV1Model(nn.Module):
                     feature_dim=1024
                     img_input_dim=(8,12)
                 elif self.resnet_type=='simclr_resnet':
-                    feature_dim=256
+                    feature_dim=1024
                     img_input_dim=(16,24)
                 self.scene_graph = attention_dispatch[args.attention_type](feature_dim, configs.model.sg_dims, 16, args=args,img_input_dim=img_input_dim)
         except Exception as e:
