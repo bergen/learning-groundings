@@ -139,6 +139,9 @@ class NSCLDatasetUnwrapped(FilterableDatasetUnwrapped):
 
 
 class NSCLDatsetFilterableView(FilterableDatasetView):
+    def program_to_ops(self, program_seq):
+        return [t['op'] for t in program_seq]
+        
     def filter_program_size_raw(self, max_length):
         def filt(question):
             return len(question['program']) <= max_length
@@ -156,7 +159,8 @@ class NSCLDatsetFilterableView(FilterableDatasetView):
             if allowed is not None:
                 return question['question_type'] in allowed
             elif disallowed is not None:
-                return question['question_type'] not in disallowed
+                ops = self.program_to_ops(question['program_seq'])
+                return all(map(lambda x: x not in disallowed, ops))
 
         if allowed is not None:
             return self.filter(filt, 'filter-question-type[allowed={{{{}}}]'.format(','.join(list(allowed))))

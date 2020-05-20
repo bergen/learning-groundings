@@ -22,7 +22,7 @@ import jactorch.nn as jacnn
 import math
 import torchvision
 
-from . import hourglass
+
 
 from . import functional
 
@@ -1332,6 +1332,36 @@ class MonetLiteSceneGraph(NaiveRNNSceneGraphBatchedBase):
         object_representations = torch.stack(object_representations,dim=1)
         return object_representations
 
+    def compute_attention(self,input,objects,objects_length):
+        object_features = self.feature_net(input)
+        
+
+        batch_size = input.size(0)
+
+        max_num_objects = max(objects_length)
+        object_mask = torch.zeros(batch_size,max_num_objects)
+
+
+        init_scope = torch.zeros((1, 1, 16, 24)).to(object_features.device)
+        log_scope = init_scope.expand(batch_size, -1, -1, -1)
+
+        attentions = []
+
+        for slot in range(max_num_objects):
+            #if slot < max_num_objects - 1:
+            x = torch.cat((object_features,log_scope),dim=1)
+            log_attention = self.attention_net(x)
+
+            log_scope = log_scope + F.logsigmoid(-log_attention)
+            #else:
+            #    log_mask = log_scope
+
+            attention = F.sigmoid(log_attention).squeeze(1)
+
+            attentions.append(attention)
+
+        attentions = torch.stack(attentions,dim=1)
+        return attentions
 
 
 
