@@ -135,7 +135,7 @@ class ProgramExecutorContext(nn.Module):
     def unique(self, selected):
         #this is applied to transform type object_set to objects
         #needs to be performed before a query
-        return nn.LogSoftMax()(selected)
+        return nn.LogSoftmax()(selected)
 
     def intersect(self, selected1, selected2):
         return torch.min(selected1, selected2)

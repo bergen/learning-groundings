@@ -1237,14 +1237,14 @@ class SceneGraphObjectSupervision(nn.Module):
 
 
 class Residual(nn.Module):
-    def __init__(self, inp_dim, out_dim):
+    def __init__(self, inp_dim, out_dim,padding=2,kernel_size=5):
         super(Residual, self).__init__()
         self.relu = nn.ReLU()
-        self.residual_conv = nn.Conv2d(inp_dim, 1, padding=0, kernel_size=1, bias=True)
-        self.conv1 = nn.Conv2d(inp_dim, out_dim, padding=2, kernel_size=5, bias=True)
-        self.conv2 = nn.Conv2d(out_dim, out_dim, padding=2, kernel_size=5, bias=True)
-        self.conv3 = nn.Conv2d(out_dim, out_dim, padding=2, kernel_size=5, bias=True)
-        self.conv4 = nn.Conv2d(out_dim, 1, padding=2, kernel_size=5, bias=True)
+        self.residual_conv = nn.Conv2d(inp_dim, out_dim, padding=0, kernel_size=1, bias=True)
+        self.conv1 = nn.Conv2d(inp_dim, inp_dim, padding=padding, kernel_size=kernel_size, bias=True)
+        self.conv2 = nn.Conv2d(inp_dim, inp_dim, padding=padding, kernel_size=kernel_size, bias=True)
+        self.conv3 = nn.Conv2d(inp_dim, inp_dim, padding=padding, kernel_size=kernel_size, bias=True)
+        self.conv4 = nn.Conv2d(inp_dim, out_dim, padding=padding, kernel_size=kernel_size, bias=True)
 
         self.reset_parameters()
 
@@ -1276,11 +1276,10 @@ class MonetLiteSceneGraph(nn.Module):
         self.feature_dim = feature_dim
         self.output_dims = output_dims
 
-        self.attention_net = Residual(feature_dim+1,feature_dim+1)
+        self.attention_net = Residual(feature_dim+1,1)
         
 
-        self.feature_net = nn.Sequential(nn.Conv2d(feature_dim,feature_dim,kernel_size=1), nn.ReLU(),
-            nn.Conv2d(feature_dim,feature_dim,kernel_size=1), nn.ReLU())
+        self.feature_net = Residual(feature_dim, feature_dim, padding=0, kernel_size=1)
 
         self.object_features_layer = nn.Sequential(nn.Linear(feature_dim,output_dims[1]),nn.ReLU())
         self.obj1_linear = nn.Linear(output_dims[1],output_dims[1])
@@ -1318,7 +1317,7 @@ class MonetLiteSceneGraph(nn.Module):
 
 
         object_representations_batched = self._norm(self.object_features_layer(object_values_batched))
-        object_pair_representations_batched = self.objects_to_pair_representations(object_representations_batched)
+        object_pair_representations_batched = self._norm(self.objects_to_pair_representations(object_representations_batched))
 
 
         outputs = []
