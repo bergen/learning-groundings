@@ -1240,35 +1240,66 @@ class Residual(nn.Module):
     def __init__(self, inp_dim, out_dim):
         super(Residual, self).__init__()
         self.relu = nn.ReLU()
-        self.residual_conv = nn.Conv2d(inp_dim, 1, padding=2, kernel_size=5, bias=True)
-        self.conv1 = nn.Conv2d(inp_dim, int(out_dim/2), padding=3, kernel_size=7, bias=True)
-        self.conv2 = nn.Conv2d(int(out_dim/2), int(out_dim/2), padding=3, kernel_size=7, bias=True)
-        self.conv4 = nn.Conv2d(int(out_dim/2), 1, padding=2, kernel_size=5, bias=True)
+        self.residual_conv = nn.Conv2d(inp_dim, 1, padding=0, kernel_size=1, bias=True)
+        self.conv1 = nn.Conv2d(inp_dim, out_dim, padding=2, kernel_size=5, bias=True)
+        self.conv2 = nn.Conv2d(out_dim, out_dim, padding=2, kernel_size=5, bias=True)
+        self.conv3 = nn.Conv2d(out_dim, out_dim, padding=2, kernel_size=5, bias=True)
+        self.conv4 = nn.Conv2d(out_dim, 1, padding=2, kernel_size=5, bias=True)
+
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight.data)
+                m.bias.data.zero_()
+            elif isinstance(m, nn.Linear):
+                nn.init.kaiming_normal_(m.weight.data)
+                m.bias.data.zero_()
 
     def forward(self, x):
         residual = self.residual_conv(x)
         out = self.conv1(x)
         out = self.relu(out)
         out = self.conv2(out)
-        #out = self.relu(out)
-        #out = self.conv3(out)
+        out = self.relu(out)
+        out = self.conv3(out)
         out = self.relu(out)
         out = self.conv4(out)
         out = out + residual
         return out 
 
         
-class MonetLiteSceneGraph(NaiveRNNSceneGraphBatchedBase):
+class MonetLiteSceneGraph(nn.Module):
     def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True, args=None,img_input_dim=(16,24)):
-        super().__init__(feature_dim, output_dims, downsample_rate,args=args,img_input_dim=img_input_dim)
+        super().__init__()
+        self.feature_dim = feature_dim
+        self.output_dims = output_dims
 
         self.attention_net = Residual(feature_dim+1,feature_dim+1)
-        self.attention_net.conv4.bias.data.fill_(-2.19)
+        
 
-        self.feature_net = nn.Sequential(nn.Conv2d(feature_dim,feature_dim,kernel_size=1), nn.ReLU())
+        self.feature_net = nn.Sequential(nn.Conv2d(feature_dim,feature_dim,kernel_size=1), nn.ReLU(),
+            nn.Conv2d(feature_dim,feature_dim,kernel_size=1), nn.ReLU())
+
+        self.object_features_layer = nn.Sequential(nn.Linear(feature_dim,output_dims[1]),nn.ReLU())
+        self.obj1_linear = nn.Linear(output_dims[1],output_dims[1])
+        self.obj2_linear = nn.Linear(output_dims[1],output_dims[1])
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight.data)
+                m.bias.data.zero_()
+            elif isinstance(m, nn.Linear):
+                nn.init.kaiming_normal_(m.weight.data)
+                m.bias.data.zero_()
+
+        self.attention_net.conv4.bias.data.fill_(-2.19)
             
     def forward(self, input, objects, objects_length):
-        object_features = self.feature_net(input)
+        object_features = input
         
 
         batch_size = input.size(0)
@@ -1309,6 +1340,8 @@ class MonetLiteSceneGraph(NaiveRNNSceneGraphBatchedBase):
         max_num_objects = max(objects_length)
         object_mask = torch.zeros(batch_size,max_num_objects)
 
+        object_features_transformed = self.feature_net(object_features)
+
 
         init_scope = torch.zeros((1, 1, 16, 24)).to(object_features.device)
         log_scope = init_scope.expand(batch_size, -1, -1, -1)
@@ -1326,7 +1359,7 @@ class MonetLiteSceneGraph(NaiveRNNSceneGraphBatchedBase):
 
             attention = F.sigmoid(log_attention).squeeze(1)
 
-            objects = torch.einsum("bjk,bljk -> bl", attention, object_features)
+            objects = torch.einsum("bjk,bljk -> bl", attention, object_features_transformed)
             object_representations.append(objects)
 
         object_representations = torch.stack(object_representations,dim=1)
@@ -1363,6 +1396,28 @@ class MonetLiteSceneGraph(NaiveRNNSceneGraphBatchedBase):
         attentions = torch.stack(attentions,dim=1)
         return attentions
 
+    def objects_to_pair_representations(self, object_representations_batched):
+        num_objects = object_representations_batched.size(1)
+
+        obj1_representations = self.obj1_linear(object_representations_batched)
+        obj2_representations = self.obj2_linear(object_representations_batched)
+
+        obj1_representations.unsqueeze_(-1)#now batch_size x num_objects x feature_dim x 1
+        obj2_representations.unsqueeze_(-1)
+
+        obj1_representations = obj1_representations.transpose(2,3)
+        obj2_representations = obj2_representations.transpose(2,3).transpose(1,2)
+
+        obj1_representations = obj1_representations.repeat(1,1,num_objects,1)  
+        obj2_representations = obj2_representations.repeat(1,num_objects,1,1)
+
+        object_pair_representations = obj1_representations+obj2_representations
+        object_pair_representations = object_pair_representations
+
+        return object_pair_representations
+
+    def _norm(self, x):
+        return x / x.norm(2, dim=-1, keepdim=True)
 
 
 def coord_map(shape,device, start=-1, end=1):

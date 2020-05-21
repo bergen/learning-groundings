@@ -73,12 +73,23 @@ class ReasoningV1Model(nn.Module):
                 self.resnet.encoder.module.ab_to_l.layer3.requires_grad = False
         elif self.resnet_type=='simclr_resnet':
             self.resnet = load_pretrained_simclr()
+            if args.restrict_finetuning:
+                self.resnet.layer2.requires_grad = False
+                self.resnet.layer1.requires_grad = False
+                self.resnet.conv1.requires_grad = False
+                i=0
+                for module in self.resnet.layer3:
+                    if i<4:
+                        module.requires_grad = False
+                    i+=1
         else:
             resnet_model = resnet_dict[self.resnet_type]
             self.resnet = resnet_model(pretrained=True, incl_gap=False, num_classes=None)
             self.resnet.layer4 = jacnn.Identity()
             if args.restrict_finetuning:
                 self.resnet.layer2.requires_grad = False
+                self.resnet.layer1.requires_grad = False
+                self.resnet.conv1.requires_grad = False
 
         import nscl.nn.scene_graph.scene_graph as sng
         import nscl.nn.scene_graph.monet as monet

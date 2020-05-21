@@ -98,7 +98,7 @@ class ProgramExecutorContext(nn.Module):
 
 
     def relate(self, selected, group, concept_groups):
-        selected = torch.log(selected)
+        #selected = torch.log(selected)
         #selected is a log probability distribution over objects. Exactly one object is assumed to satisfy the conditions that produced selected 
         #concept groups is a list of relational concepts (e.g. ['front','left','right'])
         #group is an int, which indicates which concept from concept_groups is being used
@@ -115,7 +115,7 @@ class ProgramExecutorContext(nn.Module):
         return mask[group]
 
     def relate_ae(self, selected, group, attribute_groups):
-        selected = torch.log(selected)
+        #selected = torch.log(selected)
         #selected is a log probability distribution over objects. Exactly one object is assumed to satisfy the conditions that produced selected 
         #attribute_groups is a list of attributes (e.g. ['color', 'shape'])
         #group is an int, which indicates which attribute from attribute_groups is being used
@@ -135,10 +135,7 @@ class ProgramExecutorContext(nn.Module):
     def unique(self, selected):
         #this is applied to transform type object_set to objects
         #needs to be performed before a query
-        if self.training or _test_quantize.value < InferenceQuantizationMethod.STANDARD.value:
-            return jacf.general_softmax(selected, impl='standard', training=self.training)
-        # trigger the greedy_max
-        return jacf.general_softmax(selected, impl='gumbel_hard', training=self.training)
+        return nn.LogSoftMax()(selected)
 
     def intersect(self, selected1, selected2):
         return torch.min(selected1, selected2)
@@ -158,8 +155,10 @@ class ProgramExecutorContext(nn.Module):
             #return (selected > math.log(0.8)).float().sum()
             return torch.exp(selected).sum(dim=-1).round()
 
-    _count_margin = 0.25
+    _count_margin = -0.25
     _count_tau = 0.25
+    _count_equal_margin = 0.25
+    _count_equal_tau = 0.25
 
     def count_greater(self, selected1, selected2):
         #selected1 and selected2 are tensors of length num_objects. Each is a tensor of log probabilities (not a distribution). Each number is the log probability that an object satisfies a given property
@@ -180,9 +179,9 @@ class ProgramExecutorContext(nn.Module):
         a = torch.exp(selected1).sum(dim=-1)
         b = torch.exp(selected2).sum(dim=-1)
         if self.training or _test_quantize.value < InferenceQuantizationMethod.STANDARD.value:
-            return nn.LogSigmoid()(((self._count_margin - (a - b).abs()) / (self._count_margin) / self._count_tau))
+            return nn.LogSigmoid()(((self._count_equal_margin - (a - b).abs()) / (self._count_equal_margin) / self._count_equal_tau))
         else:
-            return nn.LogSigmoid()(((self._count_margin - (a - b).abs()) / (self._count_margin) / self._count_tau))
+            return nn.LogSigmoid()(((self._count_equal_margin - (a - b).abs()) / (self._count_equal_margin) / self._count_equal_tau))
 
     def query(self, selected, group, attribute_groups):
         val, index = torch.max(selected,0)
@@ -192,7 +191,7 @@ class ProgramExecutorContext(nn.Module):
         #selected is a probability distribution over objects (not log space)
         #mask is a list consisting of num_objects probability distributions. These probability distributions are in log space.
 
-        selected = torch.log(selected)
+        #selected = torch.log(selected)
         
         if self.presupposition_semantics:
             mask = (mask[0][index]).unsqueeze(0)
@@ -209,8 +208,8 @@ class ProgramExecutorContext(nn.Module):
 
 
     def query_ae(self, selected1, selected2, group, attribute_groups):
-        selected1 = torch.exp(selected1)
-        selected2 = torch.exp(selected2)
+        #selected1 = torch.exp(selected1)
+        #selected2 = torch.exp(selected2)
         mask = self._get_attribute_groups_masks(attribute_groups)
 
         mask = (mask + selected1.unsqueeze(-1).unsqueeze(0)).sum(dim=-2)
