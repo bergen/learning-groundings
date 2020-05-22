@@ -60,10 +60,11 @@ class ReasoningV1Model(nn.Module):
 
         self.resnet_type = args.resnet_type
 
-        import jactorch.models.vision.resnet as resnet
+        import jactorch.models.vision.resnet as jac_resnet
+        from nscl.models.resnet import resnet34
         from nscl.models.cmc_resnet import load_pretrained_cmc
         from nscl.models.simclr_resnet import load_pretrained_simclr
-        resnet_dict = {'resnet34':resnet.resnet34, 'resnet101':resnet.resnet101}
+        resnet_dict = {'resnet34':jac_resnet.resnet34, 'resnet101':jac_resnet.resnet101}
         
 
         if self.resnet_type=='cmc_resnet':
@@ -82,6 +83,8 @@ class ReasoningV1Model(nn.Module):
                     if i<4:
                         module.requires_grad = False
                     i+=1
+        elif self.resnet_type=='resnet34_pytorch':
+            self.resnet = resnet34(pretrained=True)
         else:
             resnet_model = resnet_dict[self.resnet_type]
             self.resnet = resnet_model(pretrained=True, incl_gap=False, num_classes=None)

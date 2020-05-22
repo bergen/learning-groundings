@@ -1278,10 +1278,12 @@ class MonetLiteSceneGraph(nn.Module):
 
         self.attention_net = Residual(feature_dim+1,1)
         
+        self.shared_feature_net = nn.Sequential(nn.Conv2d(feature_dim,feature_dim,kernel_size=1), nn.ReLU(),
+            nn.Conv2d(feature_dim,feature_dim,kernel_size=1), nn.ReLU())
 
         self.feature_net = Residual(feature_dim, feature_dim, padding=0, kernel_size=1)
 
-        self.object_features_layer = nn.Sequential(nn.Linear(feature_dim,output_dims[1]),nn.ReLU())
+        #self.object_features_layer = nn.Sequential(nn.Linear(feature_dim,output_dims[1]),nn.ReLU())
         self.obj1_linear = nn.Linear(output_dims[1],output_dims[1])
         self.obj2_linear = nn.Linear(output_dims[1],output_dims[1])
         self.reset_parameters()
@@ -1298,7 +1300,7 @@ class MonetLiteSceneGraph(nn.Module):
         self.attention_net.conv4.bias.data.fill_(-2.19)
             
     def forward(self, input, objects, objects_length):
-        object_features = input
+        object_features = self.shared_feature_net(input)
         
 
         batch_size = input.size(0)
@@ -1315,8 +1317,8 @@ class MonetLiteSceneGraph(nn.Module):
         object_values_batched  = self.get_objects(object_features, batch_size, objects_length)
 
 
-
-        object_representations_batched = self._norm(self.object_features_layer(object_values_batched))
+        object_representations_batched = self._norm(object_values_batched)
+        #object_representations_batched = self._norm(self.object_features_layer(object_values_batched))
         object_pair_representations_batched = self._norm(self.objects_to_pair_representations(object_representations_batched))
 
 

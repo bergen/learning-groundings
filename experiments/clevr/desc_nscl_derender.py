@@ -51,6 +51,7 @@ class Model(ReasoningV1Model):
         self.attention_type = args.attention_type
 
         self.fine_tune_resnet_epoch = args.fine_tune_resnet_epoch
+        self.fine_tune_semantics_epoch = args.fine_tune_semantics_epoch
 
 
     def get_object_lengths(self,feed_dict):
@@ -88,6 +89,12 @@ class Model(ReasoningV1Model):
         
 
         programs = feed_dict.program_qsseq
+
+        if feed_dict.epoch >= self.fine_tune_semantics_epoch:
+            for p in self.reasoning.parameters():
+                p.requires_grad = False
+            #print(self.reasoning.embedding_attribute.get_concept('blue').embedding)
+        
         programs, buffers, answers = self.reasoning(f_sng, programs, fd=feed_dict)
         outputs['buffers'] = buffers
         outputs['answer'] = answers

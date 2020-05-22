@@ -135,7 +135,7 @@ class ProgramExecutorContext(nn.Module):
     def unique(self, selected):
         #this is applied to transform type object_set to objects
         #needs to be performed before a query
-        return nn.LogSoftmax()(selected)
+        return nn.LogSoftmax(dim=0)(selected)
 
     def intersect(self, selected1, selected2):
         return torch.min(selected1, selected2)
@@ -302,6 +302,7 @@ class DifferentiableReasoning(nn.Module):
                 tax.init_concepts(rec['concepts'], self.used_concepts['embeddings'])
 
     def forward(self, batch_features, progs, fd=None):
+
         assert len(progs) == len(batch_features)
 
         programs = []
