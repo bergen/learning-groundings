@@ -142,7 +142,7 @@ class Model(ReasoningV1Model):
         
         return f_sng
 
-    def get_attention(self,feed_dict):
+    def get_attention(self,feed_dict,visualize_foreground=False):
         object_lengths = self.get_object_lengths(feed_dict)
 
         feed_dict = GView(feed_dict)
@@ -151,7 +151,7 @@ class Model(ReasoningV1Model):
         if self.anneal_rnn:
             attention = self.scene_graph.compute_attention(f_scene,feed_dict.objects, object_lengths,60)
         else:
-            attention = self.scene_graph.compute_attention(f_scene,feed_dict.objects, object_lengths)
+            attention = self.scene_graph.compute_attention(f_scene,feed_dict.objects, object_lengths,visualize_foreground)
 
         return attention
 

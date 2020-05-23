@@ -1352,7 +1352,6 @@ class MonetLiteSceneGraph(nn.Module):
         foreground_attention = F.sigmoid(foreground_map).squeeze(1)
         foreground = torch.einsum("bjk,bljk -> bljk", foreground_attention, object_features)
 
-        object_mask = torch.zeros(batch_size,max_num_objects)
 
         
 
@@ -1380,14 +1379,14 @@ class MonetLiteSceneGraph(nn.Module):
         object_representations = torch.stack(object_representations,dim=1)
         return object_representations
 
-    def compute_attention(self,input,objects,objects_length):
+    def compute_attention(self,object_features,objects,objects_length,visualize_foreground=False):
         max_num_objects = max(objects_length)
+        batch_size = object_features.size(0)
 
         foreground_map = self.foreground_detector(object_features)
         foreground_attention = F.sigmoid(foreground_map).squeeze(1)
         foreground = torch.einsum("bjk,bljk -> bljk", foreground_attention, object_features)
 
-        object_mask = torch.zeros(batch_size,max_num_objects)
 
         
 
@@ -1409,7 +1408,10 @@ class MonetLiteSceneGraph(nn.Module):
 
             attention = F.sigmoid(log_attention).squeeze(1)
 
-            attentions.append(attention)
+            if visualize_foreground:
+                attentions.append(foreground_attention)
+            else:
+                attentions.append(attention)
 
         attentions = torch.stack(attentions,dim=1)
         return attentions

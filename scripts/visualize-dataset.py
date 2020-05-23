@@ -77,6 +77,7 @@ parser.add_argument('--full-recurrence', type='bool', default=True)
 parser.add_argument('--lr-cliff-epoch', type=int, default=50) #this is the epoch at which the lr will fall by factor of 0.1
 parser.add_argument('--optimizer', default='adamw', choices=['adamw', 'rmsprop'])
 parser.add_argument('--fine-tune-resnet-epoch', type=int, default=100)
+parser.add_argument('--fine-tune-semantics-epoch', type=int, default=100)
 parser.add_argument('--restrict-finetuning', type='bool', default=True)
 parser.add_argument('--resnet-type', default='resnet34', choices=['resnet34', 'resnet101','cmc_resnet','simclr_resnet'])
 parser.add_argument('--transformer-use-queries', type='bool', default=False)
@@ -158,7 +159,7 @@ def get_data(batch_size=1, dataset_size=500):
 
 def get_attention(model,feed_dict):
     feed_dict['image'] = feed_dict['image'].cuda()
-    attention = model.get_attention(feed_dict)
+    attention = model.get_attention(feed_dict,visualize_foreground=False)
     return attention
 
 def model_forward(model,feed_dict):
@@ -468,7 +469,7 @@ def test_scene_graph(model,feed_dict):
 def visualize_scene_graph():
     data = []
 
-    validation_iter, _ = get_data(batch_size=1,dataset_size=500)
+    validation_iter, _ = get_data(batch_size=1,dataset_size=100)
     model = make_model()
     for i in range(len(validation_iter)):
         feed_dict = next(validation_iter)
@@ -516,9 +517,10 @@ def visualize_scene_graph():
             mask=torch.zeros(upsampled_attention.size())
             #image_filtered = torch.where(upsampled_attention>0.95,mask,torch_image)
             if j==0:
-                image_filtered = upsampled_attention*upsampled_attention*upsampled_attention*torch_image 
+                image_filtered = upsampled_attention*torch_image 
             else:
-                image_filtered = image_filtered + upsampled_attention*upsampled_attention*upsampled_attention*torch_image 
+                #image_filtered = image_filtered + upsampled_attention*torch_image 
+                image_filtered = upsampled_attention*torch_image 
 
             #image_filtered = torch_image
         
