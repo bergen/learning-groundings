@@ -158,23 +158,38 @@ class ConceptEmbedding(nn.Module):
     def similarity(self, query, identifier,k=1):
         #identifier is a concept
         #returns a list of log probabilities: prob that each object is the concept
-        if k==2:
-            num_objs = query.size(0)
-            query = query.reshape(-1,query.size(-1))
 
         attributes = self.all_attributes
         concept = self.get_concept(identifier)
         attribute_index = concept.belong.argmax(-1).item()
-        
-        prob, word2ix = self.query_attribute(query,attributes[attribute_index])
 
+        if k==2: #two-place relation
+            num_objs = query.size(0)
+            query = query.reshape(-1,query.size(-1))
 
-        concept_index = word2ix[identifier]
+            attr_identifier = attributes[attribute_index]
+            mapping = self.get_attribute(attr_identifier)
+            attr_id = self.attribute2id[attr_identifier]
+            
+            query = mapping(query)
+            query = query / query.norm(2, dim=-1, keepdim=True)
+            concept_embedding = concept.embedding[attr_id]
+            logits = (torch.matmul(query,concept_embedding)/self.tau)
+            log_prob = nn.LogSigmoid()(logits)
 
-        log_prob = prob[:,concept_index]
-
-        if k==2:
             log_prob = log_prob.reshape(num_objs,num_objs)
+
+        
+
+        elif k==1: 
+            prob, word2ix = self.query_attribute(query,attributes[attribute_index])
+
+
+            concept_index = word2ix[identifier]
+
+            log_prob = prob[:,concept_index]
+
+        
 
 
         
