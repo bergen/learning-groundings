@@ -1142,8 +1142,9 @@ class SceneGraphObjectSupervision(nn.Module):
         self.object_feature_fc = nn.Sequential(nn.ReLU(True), nn.Linear(output_dims[1] * self.pool_size ** 2, output_dims[1]))
         self.relation_feature_fc = nn.Sequential(nn.ReLU(True), nn.Linear(output_dims[2] * self.pool_size ** 2, output_dims[2]))
 
-        self.obj1_linear = nn.Linear(output_dims[1],int(output_dims[1]))
-        self.obj2_linear = nn.Linear(output_dims[1],int(output_dims[1]))
+        self.obj1_linear = nn.Linear(output_dims[1],int(output_dims[1]/2))
+        self.obj2_linear = nn.Linear(output_dims[1],int(output_dims[1]/2))
+
 
         #self.combine_objects = nn.Linear(2*output_dims[1],output_dims[1])
 
@@ -1220,6 +1221,7 @@ class SceneGraphObjectSupervision(nn.Module):
 
         obj1_representations = self.obj1_linear(object_representations)
         obj2_representations = self.obj2_linear(object_representations)
+
 
         obj1_representations.unsqueeze_(-1)
         obj2_representations.unsqueeze_(-1)
@@ -1414,6 +1416,7 @@ class MonetLiteSceneGraph(nn.Module):
 
         obj1_representations = self.obj1_linear(object_representations_batched)
         obj2_representations = self.obj2_linear(object_representations_batched)
+
 
         obj1_representations.unsqueeze_(-1)#now batch_size x num_objects x feature_dim x 1
         obj2_representations.unsqueeze_(-1)
