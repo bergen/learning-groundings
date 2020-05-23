@@ -152,13 +152,13 @@ class ProgramExecutorContext(nn.Module):
         if self.training:
             return torch.exp(selected).sum(dim=-1)
         else:
-            #return (selected > math.log(0.8)).float().sum()
-            return torch.exp(selected).sum(dim=-1).round()
+            return (selected > math.log(0.5)).float().sum()
+            #return torch.exp(selected).sum(dim=-1).round()
 
     _count_margin = -0.25
-    _count_tau = 0.25
+    _count_tau = 0.1
     _count_equal_margin = 0.25
-    _count_equal_tau = 0.25
+    _count_equal_tau = 0.1
 
     def count_greater(self, selected1, selected2):
         #selected1 and selected2 are tensors of length num_objects. Each is a tensor of log probabilities (not a distribution). Each number is the log probability that an object satisfies a given property
@@ -212,8 +212,8 @@ class ProgramExecutorContext(nn.Module):
         #selected2 = torch.exp(selected2)
         mask = self._get_attribute_groups_masks(attribute_groups)
 
-        mask = (mask + selected1.unsqueeze(-1).unsqueeze(0)).sum(dim=-2)
-        mask = (mask + selected2.unsqueeze(0)).sum(dim=-1)
+        mask = torch.logsumexp((mask + selected1.unsqueeze(-1).unsqueeze(0)),dim=-2)
+        mask = torch.logsumexp((mask + selected2.unsqueeze(0)),dim=-1)
         if torch.is_tensor(group):
             return (mask * group.unsqueeze(1)).sum(dim=0)
         return mask[group]

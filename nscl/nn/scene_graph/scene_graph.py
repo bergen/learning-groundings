@@ -1145,6 +1145,8 @@ class SceneGraphObjectSupervision(nn.Module):
         self.obj1_linear = nn.Linear(output_dims[1],output_dims[1])
         self.obj2_linear = nn.Linear(output_dims[1],output_dims[1])
 
+        self.combine_objects = nn.Linear(2*output_dims[1],output_dims[1])
+
         self.reset_parameters()
        
 
@@ -1198,7 +1200,7 @@ class SceneGraphObjectSupervision(nn.Module):
 
             object_representations = self._norm(self.object_feature_fc(this_object_features.view(box.size(0), -1)))
 
-            object_pair_representations = self.objects_to_pair_representations(object_representations)
+            object_pair_representations = self._norm(self.objects_to_pair_representations(object_representations))
 
 
             outputs.append([
@@ -1228,7 +1230,9 @@ class SceneGraphObjectSupervision(nn.Module):
         obj1_representations = obj1_representations.repeat(1,num_objects,1)
         obj2_representations = obj2_representations.repeat(num_objects,1,1)
 
-        object_pair_representations = obj1_representations+obj2_representations
+        object_pair_representations = torch.cat((obj1_representations,obj2_representations),dim=-1)
+        object_pair_representations = self.combine_objects(object_pair_representations)
+
 
         return object_pair_representations
 

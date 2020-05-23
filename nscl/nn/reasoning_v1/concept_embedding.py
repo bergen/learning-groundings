@@ -191,7 +191,7 @@ class ConceptEmbedding(nn.Module):
         logits_and = lambda x, y: torch.min(x, y)
         logits_or = lambda x, y: torch.max(x, y)
 
-        tau = 10
+        tau = 0.1
 
         if not _normalized:
             q1 = q1 / q1.norm(2, dim=-1, keepdim=True)
