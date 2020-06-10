@@ -96,7 +96,8 @@ parser.add_argument('--attention-type', default='cnn', choices=['cnn', 'naive-rn
                                                                 'scene-graph-object-supervised',
                                                                 'structured-subtractive-rnn-batched',
                                                                 'transformer',
-                                                                'monet-lite'])
+                                                                'monet-lite',
+                                                                'transformer-cnn'])
 
 parser.add_argument('--attention-loss', type='bool', default=False)
 parser.add_argument('--anneal-rnn', type='bool', default=False)
@@ -115,6 +116,7 @@ parser.add_argument('--restrict-finetuning', type='bool', default=True)
 parser.add_argument('--resnet-type', default='resnet34', choices=['resnet34', 'resnet101','cmc_resnet','simclr_resnet','resnet34_pytorch'])
 parser.add_argument('--transformer-use-queries', type='bool', default=False)
 parser.add_argument('--filter-ops', type='bool', default=False)
+parser.add_argument('--object-dropout', type='bool', default=False)
 
 
 args = parser.parse_args()

@@ -21,6 +21,7 @@ import jactorch
 import jactorch.nn as jacnn
 import math
 import torchvision
+import random
 
 
 
@@ -673,214 +674,7 @@ class TransformerSceneGraph(NaiveRNNSceneGraphBatchedBase):
         
 
 
-class LowDimensionalRNNBatched(NaiveRNNSceneGraphBatched):
-    #first maps the feature map into a low dimensional space, and then computes attention on this
-    def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True, args=None):
-        super().__init__(feature_dim, output_dims, downsample_rate)
 
-        try:
-            self.rnn_type =  args.rnn_type
-        except Exception as e:
-            self.rnn_type = 'lstm'
-
-        self.projection_dim = 5
-        self.attention_cnn = nn.Sequential(nn.Conv2d(feature_dim,self.projection_dim,kernel_size=1), nn.ReLU())
-
-
-        if self.rnn_type=='lstm':
-            self.attention_rnn = nn.LSTM(self.projection_dim, self.projection_dim,batch_first=True)
-        elif self.rnn_type=='gru':
-            self.attention_rnn = nn.GRU(self.projection_dim, self.projection_dim,batch_first=True)
-
-        self.maxpool = nn.MaxPool2d((16,24))
-
-        try:
-            self.subtractive_rnn = args.subtractive_rnn
-        except Exception as e:
-            self.subtractive_rnn = False
-
-        try:
-            self.full_recurrence = args.full_recurrence
-        except Exception as e:
-            self.full_recurrence = True
-
-    def forward(self, input, objects, objects_length):
-        object_features = input
-        
-
-        batch_size = input.size(0)
-        max_num_objects = max(objects_length)
-       
-        outputs = list()
-        #object_features has shape batch_size x 256 x 16 x 24
-        obj_coord_map = torch.unsqueeze(coord_map((object_features.size(2),object_features.size(3)),object_features.device),dim=0)
-
-        obj_coord_map_batched = obj_coord_map.repeat(batch_size,1,1,1)
-
-        scene_object_coords_batched = torch.cat((object_features,obj_coord_map_batched), dim=1)
-
-        fused_object_coords_batched = self.object_coord_fuse(scene_object_coords_batched)
-
-        queries = self.get_queries(fused_object_coords_batched, batch_size, max_num_objects)
-
-        if not self.subtractive_rnn:
-            attention_map_batched = torch.einsum("bij,bjkl -> bikl", queries,fused_object_coords_batched)
-            attention_map_batched = nn.Softmax(2)(attention_map_batched.reshape(batch_size,max_num_objects,-1)).view_as(attention_map_batched)
-            object_values_batched = torch.einsum("bijk,bljk -> bil", attention_map_batched, fused_object_coords_batched) 
-            
-
-        else:
-            object_representations = []
-
-            low_dim_scene = self.attention_cnn(fused_object_coords_batched)
-            remaining_scene = low_dim_scene
-
-            
-            for query in queries:
-
-                if not self.full_recurrence:
-                    attention_map_batched = torch.einsum("bj,bjkl -> bkl", query,low_dim_scene)
-                else:
-                    attention_map_batched = torch.einsum("bj,bjkl -> bkl", query,remaining_scene)
-                attention_map_batched = nn.Softmax(1)(attention_map_batched.reshape(batch_size,-1)).view_as(attention_map_batched)
-                object_values = torch.einsum("bjk,bljk -> bl", attention_map_batched, fused_object_coords_batched) 
-                object_representations.append(object_values)
-
-                weighted_scene = torch.einsum("bjk,bljk -> bljk", attention_map_batched, remaining_scene) 
-
-                remaining_scene = remaining_scene - weighted_scene
-
-            object_values_batched = torch.stack(object_representations,dim=1)
-
-        object_representations_batched = self._norm(self.object_features_layer(object_values_batched))
-        object_pair_representations_batched = self.objects_to_pair_representations(object_representations_batched)
-
-
-        outputs = []
-        for i in range(batch_size):
-            num_objects = objects_length[i]
-            object_representations = torch.squeeze(object_representations_batched[i,0:num_objects,:],dim=0)
-            object_pair_representations = torch.squeeze(object_pair_representations_batched[i,0:num_objects,0:num_objects,:],dim=0).contiguous()
-            
-            outputs.append([
-                        None,
-                        object_representations,
-                        object_pair_representations
-                    ])
-
-
-        return outputs
-
-    def get_queries(self,fused_object_coords,batch_size,max_num_objects):
-
-        if not self.subtractive_rnn:
-            rnn_input = self.maxpool(fused_object_coords).squeeze(-1).squeeze(-1)
-            rnn_input = rnn_input.unsqueeze(1).expand(-1,max_num_objects,-1)
-            queries,_ = self.attention_rnn(rnn_input)
-            return queries
-
-        else:
-            device = fused_object_coords.device
-
-            
-            if self.rnn_type == 'lstm':
-                h = torch.zeros(1,batch_size,self.projection_dim).to(device), torch.zeros(1,batch_size,self.projection_dim).to(device)
-            else:
-                h = torch.zeros(1,batch_size,self.projection_dim).to(device)
-
-            query_list = []
-
-            low_dim_scene = self.attention_cnn(fused_object_coords)
-
-
-            remaining_scene = low_dim_scene
-
-            for i in range(max_num_objects):
-
-                scene_representation = self.maxpool(remaining_scene).squeeze(-1).squeeze(-1).unsqueeze(1)
-                
-                output, h = self.attention_rnn(scene_representation,h)
-
-                query = output.view(batch_size,-1)
-
-                if not self.full_recurrence:
-                    attention_map_batched = torch.einsum("bj,bjkl -> bkl", query,low_dim_scene)
-                else:
-                    attention_map_batched = torch.einsum("bj,bjkl -> bkl", query,remaining_scene)
-
-                attention_map_batched = nn.Softmax(1)(attention_map_batched.reshape(batch_size,-1)).view_as(attention_map_batched)
-
-                weighted_scene = torch.einsum("bjk,bljk -> bljk", attention_map_batched, remaining_scene) 
-
-                remaining_scene = remaining_scene - weighted_scene
-
-
-                query_list.append(query)
-
-
-
-            #queries = torch.stack(query_list,dim=1)
-
-            return query_list
-
-
-
-class NaiveRNNSceneGraphGlobalBatched(NaiveRNNSceneGraphBatchedBase):
-    def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True):
-        super().__init__(feature_dim, output_dims, downsample_rate)
-
-        self.maxpool = nn.MaxPool2d((16,24))
-
-        self.object_fc = nn.Sequential(nn.Linear(2*self.feature_dim,self.output_dims[1]),nn.ReLU())
-        
-
-    def forward(self, input, objects, objects_length):
-        object_features = input
-        
-
-        batch_size = input.size(0)
-        max_num_objects = max(objects_length)
-       
-        outputs = list()
-        #object_features has shape batch_size x 256 x 16 x 24
-        obj_coord_map = torch.unsqueeze(coord_map((object_features.size(2),object_features.size(3)),object_features.device),dim=0)
-
-        obj_coord_map_batched = obj_coord_map.repeat(batch_size,1,1,1)
-
-        scene_object_coords_batched = torch.cat((object_features,obj_coord_map_batched), dim=1)
-
-        fused_object_coords_batched = self.object_coord_fuse(scene_object_coords_batched)
-
-        queries = self.get_queries(fused_object_coords_batched, batch_size, max_num_objects)
-
-        attention_map_batched = torch.einsum("bij,bjkl -> bikl", queries,fused_object_coords_batched)
-        attention_map_batched = nn.Softmax(2)(attention_map_batched.reshape(batch_size,max_num_objects,-1)).view_as(attention_map_batched)
-        object_values_batched = torch.einsum("bijk,bljk -> bil", attention_map_batched, fused_object_coords_batched) 
-
-        global_context = self.maxpool(fused_object_coords_batched).squeeze(-1).squeeze(-1)
-        global_context = global_context.unsqueeze(1).repeat(1,max_num_objects,1)
-        object_global_cat = torch.cat((object_values_batched,global_context),dim=2)
-
-        object_representations_batched = self._norm(self.object_fc(object_global_cat))
-
-
-        object_pair_representations_batched = self.objects_to_pair_representations(object_representations_batched)
-
-
-        outputs = []
-        for i in range(batch_size):
-            num_objects = objects_length[i]
-            object_representations = torch.squeeze(object_representations_batched[i,0:num_objects,:],dim=0)
-            object_pair_representations = torch.squeeze(object_pair_representations_batched[i,0:num_objects,0:num_objects,:],dim=0).contiguous()
-            
-            outputs.append([
-                        None,
-                        object_representations,
-                        object_pair_representations
-                    ])
-
-
-        return outputs
 
 class StructuredRNNSceneGraphBatched(NaiveRNNSceneGraphBatchedBase):
     def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True,args=None,img_input_dim=(16,24)):
@@ -1058,66 +852,6 @@ class StructuredSubtractiveRNNSceneGraphBatched(StructuredRNNSceneGraphBatched):
             return objects
 
 
-
-class AttentionCNNSceneGraph(SceneGraph):
-    def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True):
-        super().__init__(feature_dim, output_dims, downsample_rate)
-
-        self.attention_cnn = nn.Sequential(nn.Conv2d(self.feature_dim+1,self.feature_dim,kernel_size=1),nn.ReLU())
-        self.attention_fc = nn.Sequential(nn.Linear(self.feature_dim*16*24,self.feature_dim), nn.ReLU())
-
-
-    def forward(self, input, objects, objects_length):
-        object_features = input
-        
-        device = object_features.device
-
-        outputs = list()
-        #object_features has shape batch_size x 256 x 16 x 24
-        obj_coord_map = coord_map((object_features.size(2),object_features.size(3)),device)
-        
-        for i in range(input.size(0)):
-            single_scene_object_features =  torch.squeeze(object_features[i,:],dim=0) #dim=256 x 16 x 24
-            scene_object_coords = torch.unsqueeze(torch.cat((single_scene_object_features,obj_coord_map),dim=0),dim=0)
-
-            fused_object_coords = torch.squeeze(self.object_coord_fuse(scene_object_coords),dim=0) #dim=256 x Z x Y
-
-
-            num_objects = objects_length[i]
-
-
-            attention_map_list = []
-            max_attention = torch.zeros(fused_object_coords.size(1),fused_object_coords.size(2)).to(device)
-            for j in range(num_objects):
-                h = self.attention_cnn(torch.unsqueeze(torch.cat((torch.unsqueeze(max_attention,dim=0),fused_object_coords),dim=0), dim=0))
-                query = torch.squeeze(self.attention_fc(h.view(1,-1)),dim=0)
-            
-
-                obj_attention_weights = torch.einsum("i,ijk -> jk",query,fused_object_coords)
-                obj_attention = nn.Softmax(1)(obj_attention_weights.view(1,-1)).view_as(obj_attention_weights)
-                attention_map_list.append(obj_attention)
-                max_attention = torch.max(obj_attention,max_attention)
-
-            attention_map = torch.stack(attention_map_list)
-
-
-            #attention_map = torch.einsum("ij,jkl -> ikl", queries,fused_object_coords) #dim=num_objects x Z x Y
-            #attention_map = nn.Softmax(1)(attention_map.view(num_objects,-1)).view_as(attention_map)
-            object_values = torch.einsum("ijk,ljk -> il", attention_map, fused_object_coords) #dim=num_objects x 256
-
-            object_representations = self._norm(self.object_features_layer(object_values))
-
-            object_pair_representations = self.objects_to_pair_representations(object_representations)
-
-            outputs.append([
-                        None,
-                        object_representations,
-                        object_pair_representations
-                    ])
-
-        return outputs
-
-
 class SceneGraphObjectSupervision(nn.Module):
     def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=True,concatenative_pair_representation=True,args=None,img_input_dim=(16,24)):
         super().__init__()
@@ -1243,12 +977,18 @@ class SceneGraphObjectSupervision(nn.Module):
 
 
 class Residual(nn.Module):
-    def __init__(self, inp_dim, out_dim,padding=2,kernel_size=5):
+    def __init__(self, inp_dim, out_dim,padding=2,kernel_size=5,pool=False):
         super(Residual, self).__init__()
         self.relu = nn.ReLU()
+        if pool:
+            self.maxpool = nn.MaxPool2d((16,24))
+        else:
+            self.maxpool = nn.Identity()
+            self.globalpool = nn.Identity()
+
         self.residual_conv = nn.Conv2d(inp_dim, out_dim, padding=0, kernel_size=1, bias=True)
         self.conv1 = nn.Conv2d(inp_dim, inp_dim, padding=padding, kernel_size=kernel_size, bias=True)
-        self.conv2 = nn.Conv2d(inp_dim, inp_dim, padding=padding, kernel_size=kernel_size, bias=True)
+        self.conv2 = nn.Conv2d(inp_dim,inp_dim, padding=padding, kernel_size=kernel_size, bias=True)
         self.conv3 = nn.Conv2d(inp_dim, inp_dim, padding=padding, kernel_size=kernel_size, bias=True)
         self.conv4 = nn.Conv2d(inp_dim, out_dim, padding=padding, kernel_size=kernel_size, bias=True)
 
@@ -1272,20 +1012,365 @@ class Residual(nn.Module):
         out = self.conv3(out)
         out = self.relu(out)
         out = self.conv4(out)
+        out = self.relu(out)
         out = out + residual
-        return out 
+        out = self.maxpool(out)
 
         
+        return out 
+
+class AttentionNet(nn.Module):
+    def __init__(self, inp_dim):
+        super(AttentionNet, self).__init__()
+        self.fc_attention = nn.Sequential(nn.Linear(inp_dim, inp_dim),nn.ReLU(),nn.Linear(inp_dim,4))
+
+        self.X = 16
+        self.Y = 24
+
+        self.epsilon=1e-5
+    
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight.data)
+                m.bias.data.zero_()
+            elif isinstance(m, nn.Linear):
+                nn.init.kaiming_normal_(m.weight.data)
+                m.bias.data.zero_()
+
+
+    def forward(self, x):
+        device = x.device
+
+        x = x.reshape(x.size(0),-1)
+        params = self.fc_attention(x)
+        gx_, gy_, log_sigma_x, log_sigma_y = params.split(1, 1)
+
+        gx = torch.sigmoid(gx_)
+        gy = torch.sigmoid(gy_)
+
+        #gx = gx_
+        #gy = gy_
+        print(gx[0:10,:])
+        
+
+        sigma = 0.2*torch.sigmoid(log_sigma_x/2)
+        #sigma_y = 0.2*torch.sigmoid(log_sigma_y/2)
+
+        a = torch.linspace(0.0, 1.0, steps=self.X, device=device).view(1, -1)
+        b = torch.linspace(0.0, 1.0, steps=self.Y, device=device).view(1, -1)
+
+        Fx = torch.exp(-torch.pow(a - gx, 2) / sigma) #should be batchx16
+        Fy = torch.exp(-torch.pow(b - gy, 2) / sigma) #should be batchx24
+
+
+        
+        
+        Fx = Fx / (Fx.sum(1, True).expand_as(Fx) + self.epsilon)
+ 
+        Fy = Fy / (Fy.sum(1, True).expand_as(Fy) + self.epsilon)
+
+        attention = torch.einsum("bx,by -> bxy",Fx,Fy)
+
+        
+
+
+
+
+        return attention 
+
+
+class LocalAttentionNet(nn.Module):
+    def __init__(self, inp_dim, out_dim,padding=1,kernel_size=3,pool=False):
+        super(LocalAttentionNet, self).__init__()
+        self.relu = nn.ReLU()
+        if pool:
+            self.maxpool = nn.MaxPool2d((16,24))
+        else:
+            self.maxpool = nn.Identity()
+            self.globalpool = nn.Identity()
+
+        self.residual_conv = nn.Conv2d(inp_dim, out_dim, padding=0, kernel_size=1, bias=True)
+        self.conv1 = nn.Conv2d(inp_dim, inp_dim, padding=padding, kernel_size=kernel_size, bias=True)
+        self.conv2 = nn.Conv2d(inp_dim,out_dim, padding=padding, kernel_size=kernel_size, bias=True)
+
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight.data)
+                m.bias.data.zero_()
+            elif isinstance(m, nn.Linear):
+                nn.init.kaiming_normal_(m.weight.data)
+                m.bias.data.zero_()
+
+    def forward(self, x):
+        residual = self.residual_conv(x)
+        out = self.conv1(x)
+        out = self.relu(out)
+        out = self.conv2(out)
+        out = self.relu(out)
+        out = out + residual
+        
+        return out 
+
+class TransformerCNN(nn.Module):
+    def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True, args=None,img_input_dim=(16,24)):
+        super().__init__()
+        self.object_dropout = args.object_dropout
+        self.feature_dim = feature_dim
+        self.output_dims = output_dims
+        self.attention_net_1 = LocalAttentionNet(self.feature_dim+1,1,padding=2,kernel_size=5)
+        self.attention_net_2 = Residual(self.feature_dim+1,1, padding=2, kernel_size=5)
+        self.attention_net_3 = Residual(self.feature_dim+1,1, padding=2, kernel_size=5)
+        #self.attention_net = AttentionNet(int(feature_dim/64)*2)
+
+        self.foreground_detector = Residual(self.feature_dim,1, padding=1, kernel_size=3)
+
+        #self.object_net = Residual(self.feature_dim+3,self.feature_dim,padding=0,kernel_size=1,pool=True)
+        
+        self.maxpool = nn.MaxPool2d(3,padding=1,stride=1)
+        #self.shared_feature_net = nn.Sequential(nn.Conv2d(feature_dim,feature_dim,kernel_size=1), nn.ReLU(),
+        #    nn.Conv2d(feature_dim,feature_dim,kernel_size=1), nn.ReLU())
+
+        #self.feature_net = Residual(feature_dim, feature_dim, padding=0, kernel_size=1)
+
+        #self.object_features_layer = nn.Sequential(nn.Linear(feature_dim,output_dims[1]),nn.ReLU())
+        self.obj1_linear = nn.Linear(output_dims[1],int(output_dims[1]/2))
+        self.obj2_linear = nn.Linear(output_dims[1],int(output_dims[1]/2))
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight.data)
+                m.bias.data.zero_()
+            elif isinstance(m, nn.Linear):
+                nn.init.kaiming_normal_(m.weight.data)
+                m.bias.data.zero_()
+
+        self.attention_net_3.conv4.bias.data.fill_(-2.19)
+
+    def local_max(self,attention_map,k):
+        batch_size = attention_map.size(0)
+
+        map_local_max = self.maxpool(attention_map)
+        map_local_max = torch.eq(attention_map,map_local_max)
+        map_local_max = attention_map * map_local_max.int().float()
+
+
+        top_k_indices = torch.topk(map_local_max.view(batch_size,-1),k)[1]
+
+        indicator_maps = []
+        for i in range(k):
+            indicator_map = torch.zeros(attention_map.size()).view(batch_size,-1).to(attention_map.device)
+            indices = top_k_indices[:,i].unsqueeze(1)
+            indicator_map = indicator_map.scatter_(1,indices,1).view_as(attention_map)
+            indicator_maps.append(indicator_map)
+        
+        return indicator_maps
+
+
+
+            
+    def forward(self, input, objects, objects_length):
+        object_features = input
+        
+
+        batch_size = input.size(0)
+        
+       
+        outputs = list()
+        #object_features has shape batch_size x 256 x 16 x 24
+        
+
+    
+
+
+
+        object_values_batched  = self.get_objects(object_features, batch_size, objects_length)
+
+
+        object_representations_batched = self._norm(object_values_batched)
+        #object_representations_batched = self._norm(self.object_features_layer(object_values_batched))
+        object_pair_representations_batched = self._norm(self.objects_to_pair_representations(object_representations_batched))
+
+
+        outputs = []
+        for i in range(batch_size):
+            num_objects = objects_length[i]
+            object_representations = torch.squeeze(object_representations_batched[i,0:num_objects,:],dim=0)
+
+            if self.training:
+                if self.object_dropout:
+                    if random.random()<0.1:
+                        index = random.randrange(num_objects)
+                        object_representations[index,:]=0
+
+            object_pair_representations = torch.squeeze(object_pair_representations_batched[i,0:num_objects,0:num_objects,:],dim=0).contiguous()
+            
+            outputs.append([
+                        None,
+                        object_representations,
+                        object_pair_representations
+                    ])
+
+
+        return outputs
+
+    def transformer_layer_start(self,feature_map,foreground_map, indicators):
+        attentions = []
+        for indicator_map in indicators:
+            rep = torch.cat((feature_map,indicator_map),dim=1)
+            attention = self.attention_net_1(rep)
+            attentions.append(attention)
+        return attentions
+
+    def transformer_layer(self,feature_map,foreground_map, attentions,attention_net):
+        sum_scope = foreground_map
+        for attention in attentions:
+            sum_scope = sum_scope + F.logsigmoid(-attention)
+
+        new_attentions = []
+        for attention in attentions:
+            scope = sum_scope - F.logsigmoid(-attention)
+            rep = torch.cat((feature_map,scope),dim=1)
+            new_attention = attention_net(rep)
+            new_attentions.append(new_attention)
+
+        return new_attentions
+
+
+
+
+    def get_objects(self,object_features,batch_size,objects_length):
+        max_num_objects = max(objects_length)
+        #obj_coord_map = coord_map((object_features.size(2),object_features.size(3)),object_features.device).unsqueeze(0)
+        #obj_coord_map = obj_coord_map.repeat(batch_size,1,1,1)
+
+        #object_coord_cat = torch.cat((object_features,obj_coord_map),dim=1)
+        foreground_map = self.foreground_detector(object_features)
+
+        #foreground_map = foreground_features_fused[:,0,:,:].unsqueeze(1)
+        #collapsed_features = foreground_features_fused[:,1:,:,:]
+        foreground_attention = torch.sigmoid(foreground_map).squeeze(1)
+        foreground = torch.einsum("bjk,bljk -> bljk", foreground_attention, object_features)
+
+
+        
+
+
+        #init_scope = torch.zeros((1, 1, 16, 24)).to(object_features.device)
+        #log_scope = init_scope.expand(batch_size, -1, -1, -1)
+        #log_scope = F.logsigmoid(foreground_map)
+
+        object_representations = []
+
+        indicators = self.local_max(foreground_map,max_num_objects)
+
+        attentions = self.transformer_layer_start(object_features,foreground_map,indicators)
+        attentions = self.transformer_layer(object_features,foreground_map, attentions, self.attention_net_2)
+        attentions = self.transformer_layer(object_features,foreground_map, attentions, self.attention_net_3)
+
+        for slot in range(max_num_objects):
+            
+            attention = F.sigmoid(attentions[slot])
+            attention = attention.squeeze(1)
+            #else:
+            #    attention = torch.exp(log_scope).squeeze(1)
+
+            #attention = attention.squeeze(1)
+            objects = torch.einsum("bjk,bljk -> bl", attention, foreground)
+            #objects = self.maxpool(obj_cols_weighted).squeeze(-1).squeeze(-1)
+            
+            object_representations.append(objects)
+
+        object_representations = torch.stack(object_representations,dim=1)
+        return object_representations
+
+    def compute_attention(self,object_features,objects,objects_length,visualize_foreground=False):
+        max_num_objects = max(objects_length)
+        batch_size = object_features.size(0)
+
+        foreground_map = self.foreground_detector(object_features)
+        foreground_attention = F.sigmoid(foreground_map).squeeze(1)
+        foreground = torch.einsum("bjk,bljk -> bljk", foreground_attention, object_features)
+
+
+        
+
+
+        #init_scope = torch.zeros((1, 1, 16, 24)).to(object_features.device)
+        #log_scope = init_scope.expand(batch_size, -1, -1, -1)
+        log_scope = foreground_map
+
+        attentions = []
+
+        for slot in range(max_num_objects):
+            #if slot < max_num_objects - 1:
+            x = torch.cat((foreground,log_scope),dim=1)
+            log_attention = self.attention_net(x)
+
+            log_scope = log_scope + F.logsigmoid(-log_attention)
+            #else:
+            #    log_mask = log_scope
+
+            attention = F.sigmoid(log_attention).squeeze(1)
+
+            if visualize_foreground:
+                attentions.append(foreground_attention)
+            else:
+                attentions.append(attention)
+
+        attentions = torch.stack(attentions,dim=1)
+        return attentions
+
+
+        
+
+    def objects_to_pair_representations(self, object_representations_batched):
+        num_objects = object_representations_batched.size(1)
+
+        obj1_representations = self.obj1_linear(object_representations_batched)
+        obj2_representations = self.obj2_linear(object_representations_batched)
+
+
+        obj1_representations.unsqueeze_(-1)#now batch_size x num_objects x feature_dim x 1
+        obj2_representations.unsqueeze_(-1)
+
+        obj1_representations = obj1_representations.transpose(2,3)
+        obj2_representations = obj2_representations.transpose(2,3).transpose(1,2)
+
+        obj1_representations = obj1_representations.repeat(1,1,num_objects,1)  
+        obj2_representations = obj2_representations.repeat(1,num_objects,1,1)
+
+        object_pair_representations = torch.cat((obj1_representations,obj2_representations),dim=-1)
+        #object_pair_representations = object_pair_representations
+
+        return object_pair_representations
+
+    def _norm(self, x):
+        return x / x.norm(2, dim=-1, keepdim=True)
+
+     
 class MonetLiteSceneGraph(nn.Module):
     def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True, args=None,img_input_dim=(16,24)):
         super().__init__()
+        self.object_dropout = args.object_dropout
         self.feature_dim = feature_dim
         self.output_dims = output_dims
+        self.collapsed_dim = 16
+        self.attention_net = Residual(self.feature_dim+3,1,padding=2,kernel_size=5)
+        #self.attention_net = AttentionNet(int(feature_dim/64)*2)
 
-        self.attention_net = Residual(feature_dim+1,1)
+        self.foreground_detector = Residual(self.feature_dim+2,1, padding=1, kernel_size=3)
 
-        self.foreground_detector = Residual(feature_dim,1)
+        #self.object_net = Residual(self.feature_dim+3,self.feature_dim,padding=0,kernel_size=1,pool=True)
         
+        #self.maxpool = nn.MaxPool2d((16,24))
         #self.shared_feature_net = nn.Sequential(nn.Conv2d(feature_dim,feature_dim,kernel_size=1), nn.ReLU(),
         #    nn.Conv2d(feature_dim,feature_dim,kernel_size=1), nn.ReLU())
 
@@ -1334,6 +1419,13 @@ class MonetLiteSceneGraph(nn.Module):
         for i in range(batch_size):
             num_objects = objects_length[i]
             object_representations = torch.squeeze(object_representations_batched[i,0:num_objects,:],dim=0)
+
+            if self.training:
+                if self.object_dropout:
+                    if random.random()<0.1:
+                        index = random.randrange(num_objects)
+                        object_representations[index,:]=0
+
             object_pair_representations = torch.squeeze(object_pair_representations_batched[i,0:num_objects,0:num_objects,:],dim=0).contiguous()
             
             outputs.append([
@@ -1347,9 +1439,15 @@ class MonetLiteSceneGraph(nn.Module):
 
     def get_objects(self,object_features,batch_size,objects_length):
         max_num_objects = max(objects_length)
+        obj_coord_map = coord_map((object_features.size(2),object_features.size(3)),object_features.device).unsqueeze(0)
+        obj_coord_map = obj_coord_map.repeat(batch_size,1,1,1)
 
-        foreground_map = self.foreground_detector(object_features)
-        foreground_attention = F.sigmoid(foreground_map).squeeze(1)
+        object_coord_cat = torch.cat((object_features,obj_coord_map),dim=1)
+        foreground_map = self.foreground_detector(object_coord_cat)
+
+        #foreground_map = foreground_features_fused[:,0,:,:].unsqueeze(1)
+        #collapsed_features = foreground_features_fused[:,1:,:,:]
+        foreground_attention = torch.sigmoid(foreground_map).squeeze(1)
         foreground = torch.einsum("bjk,bljk -> bljk", foreground_attention, object_features)
 
 
@@ -1358,22 +1456,22 @@ class MonetLiteSceneGraph(nn.Module):
 
         #init_scope = torch.zeros((1, 1, 16, 24)).to(object_features.device)
         #log_scope = init_scope.expand(batch_size, -1, -1, -1)
-        log_scope = foreground_map
+        log_scope = F.logsigmoid(foreground_map)
 
         object_representations = []
 
         for slot in range(max_num_objects):
             #if slot < max_num_objects - 1:
-            x = torch.cat((foreground,log_scope),dim=1)
-            log_attention = self.attention_net(x)
-
+            log_attention = self.attention_net(torch.cat((foreground,log_scope,obj_coord_map),dim=1))
             log_scope = log_scope + F.logsigmoid(-log_attention)
-            #else:
-            #    log_mask = log_scope
-
             attention = F.sigmoid(log_attention).squeeze(1)
+            #else:
+            #    attention = torch.exp(log_scope).squeeze(1)
 
+            #attention = attention.squeeze(1)
             objects = torch.einsum("bjk,bljk -> bl", attention, foreground)
+            #objects = self.maxpool(obj_cols_weighted).squeeze(-1).squeeze(-1)
+            
             object_representations.append(objects)
 
         object_representations = torch.stack(object_representations,dim=1)
@@ -1444,7 +1542,7 @@ class MonetLiteSceneGraph(nn.Module):
         return x / x.norm(2, dim=-1, keepdim=True)
 
 
-def coord_map(shape,device, start=-1, end=1):
+def coord_map(shape,device, start=0, end=1):
     """
     Gives, a 2d shape tuple, returns two mxn coordinate maps,
     Ranging min-max in the x and y directions, respectively.

@@ -97,24 +97,21 @@ class ReasoningV1Model(nn.Module):
         import nscl.nn.scene_graph.scene_graph as sng
         import nscl.nn.scene_graph.monet as monet
         # number of channels = 256; downsample rate = 16.
-        attention_dispatch = {'cnn':sng.AttentionCNNSceneGraph,
-                            'naive-rnn':sng.NaiveRNNSceneGraph,
-                            'naive-rnn-batched':sng.NaiveRNNSceneGraphBatched,
-                            'naive-rnn-global-batched':sng.NaiveRNNSceneGraphGlobalBatched,
+        attention_dispatch = {
                             'structured-rnn-batched':sng.StructuredRNNSceneGraphBatched,
                             'structured-subtractive-rnn-batched':sng.StructuredSubtractiveRNNSceneGraphBatched,
                             'max-rnn-batched':sng.MaxRNNSceneGraphBatched,
-                            'low-dim-rnn-batched':sng.LowDimensionalRNNBatched,
                             'monet':monet.MONet,
                             'scene-graph-object-supervised': sng.SceneGraphObjectSupervision,
                             'transformer': sng.TransformerSceneGraph,
-                            'monet-lite': sng.MonetLiteSceneGraph}
+                            'monet-lite': sng.MonetLiteSceneGraph,
+                            'transformer-cnn': sng.TransformerCNN}
 
         try:
             if args.attention_type=='monet':
                 self.scene_graph = attention_dispatch[args.attention_type](128, 128, 3, configs.model.sg_dims, args=args)
             else:
-                if self.resnet_type=='resnet34':
+                if self.resnet_type in ['resnet34','resnet34_pytorch']:
                     feature_dim=256
                     img_input_dim=(16,24)
                 elif self.resnet_type=='resnet101':
@@ -126,6 +123,7 @@ class ReasoningV1Model(nn.Module):
                 elif self.resnet_type=='simclr_resnet':
                     feature_dim=256
                     img_input_dim=(16,24)
+
                 self.scene_graph = attention_dispatch[args.attention_type](feature_dim, configs.model.sg_dims, 16, args=args,img_input_dim=img_input_dim)
         except Exception as e:
             print(e)

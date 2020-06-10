@@ -152,7 +152,7 @@ class TrainerEnv(object):
 
         
         if torch.isnan(loss).any().item():
-            print(feed_dict['program_qsseq'])
+            #print(feed_dict['program_qsseq'])
             return loss_f, monitors_f, output_dict, extra
 
 
