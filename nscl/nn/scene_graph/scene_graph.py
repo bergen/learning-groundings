@@ -1121,10 +1121,11 @@ class TransformerCNN(nn.Module):
         self.object_dropout = args.object_dropout
         self.feature_dim = feature_dim
         self.output_dims = output_dims
-        self.attention_net_1 = LocalAttentionNet(self.feature_dim+1,1,padding=1,kernel_size=3)
-        self.attention_net_2 = LocalAttentionNet(self.feature_dim+2,1, padding=1, kernel_size=3)
-        self.attention_net_3 = LocalAttentionNet(self.feature_dim+2,1, padding=1, kernel_size=3)
-        #self.attention_net = AttentionNet(int(feature_dim/64)*2)
+        num_heads = 3
+        self.attention_net_1 = LocalAttentionNet(self.feature_dim+2,num_heads,padding=2,kernel_size=5)
+        self.attention_net_2 = LocalAttentionNet(self.feature_dim+1+2*num_heads,num_heads, padding=2, kernel_size=5)
+        self.attention_net_3 = LocalAttentionNet(self.feature_dim+1+2*num_heads,num_heads, padding=2, kernel_size=5)
+        self.attention_net_4 = LocalAttentionNet(self.feature_dim+1+2*num_heads,1, padding=2, kernel_size=5)
 
         self.foreground_detector = LocalAttentionNet(self.feature_dim,1, padding=1, kernel_size=3)
 
@@ -1222,7 +1223,7 @@ class TransformerCNN(nn.Module):
     def transformer_layer_start(self,feature_map,foreground_map, indicators):
         attentions = []
         for indicator_map in indicators:
-            rep = torch.cat((feature_map,indicator_map),dim=1)
+            rep = torch.cat((feature_map,foreground_map,indicator_map),dim=1)
             attention = self.attention_net_1(rep)
             attentions.append(attention)
         return attentions
@@ -1235,7 +1236,7 @@ class TransformerCNN(nn.Module):
         new_attentions = []
         for attention in attentions:
             scope = sum_scope - F.logsigmoid(-attention)
-            rep = torch.cat((feature_map,attention,scope),dim=1)
+            rep = torch.cat((feature_map,foreground_map,attention,scope),dim=1)
             new_attention = attention_net(rep)
             new_attentions.append(new_attention)
 
@@ -1273,10 +1274,11 @@ class TransformerCNN(nn.Module):
             attentions = self.transformer_layer_start(foreground,foreground_map,indicators)
         else:
             attentions = torch.normal(-1,1,size=(batch_size,1,16,24)).to(object_features.device)
-        attentions = self.transformer_layer(object_features,foreground_map, attentions, self.attention_net_2)
+        attentions = self.transformer_layer(foreground,foreground_map, attentions, self.attention_net_2)
         #
-        attentions = self.transformer_layer(object_features,foreground_map, attentions, self.attention_net_3)
-        #print(self.attention_net_3.conv1.weight.data)
+        attentions = self.transformer_layer(foreground,foreground_map, attentions, self.attention_net_3)
+        attentions = self.transformer_layer(foreground,foreground_map, attentions, self.attention_net_4)
+        #print(self.attention_net_4.conv1.weight.data)
 
         for slot in range(max_num_objects):
             
