@@ -1093,9 +1093,10 @@ class LocalAttentionNet(nn.Module):
             self.globalpool = nn.Identity()
 
         self.residual_conv = nn.Conv2d(inp_dim, out_dim, padding=0, kernel_size=1, bias=True)
-        self.conv1 = nn.Conv2d(inp_dim, out_dim, padding=padding, kernel_size=kernel_size, bias=True)
+        self.conv1 = nn.Conv2d(inp_dim, inp_dim, padding=padding, kernel_size=kernel_size, bias=True)
         #self.norm = nn.InstanceNorm2d(out_dim,affine=True)
-        #self.conv2 = nn.Conv2d(inp_dim,out_dim, padding=padding, kernel_size=kernel_size, bias=True)
+        self.conv2 = nn.Conv2d(inp_dim,inp_dim, padding=padding, kernel_size=kernel_size, bias=True)
+        self.conv3 = nn.Conv2d(inp_dim,out_dim, padding=padding, kernel_size=kernel_size, bias=True)
 
         self.last_conv = nn.Conv2d(out_dim, out_dim, kernel_size=1)
 
@@ -1105,20 +1106,25 @@ class LocalAttentionNet(nn.Module):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight.data)
-                m.bias.data.zero_()
+                #m.bias.data.zero_()
             elif isinstance(m, nn.Linear):
                 nn.init.kaiming_normal_(m.weight.data)
-                m.bias.data.zero_()
+                #m.bias.data.zero_()
 
         self.last_conv.bias.data.fill_(-2.19)
 
     def forward(self, x):
-        #residual = self.residual_conv(x)
+        residual = self.residual_conv(x)
         out = self.conv1(x)
         #out = self.norm(out)
         out = self.relu(out)
+        out = self.conv2(out)
+        out = self.relu(out)
+        out = self.conv3(out)
+        out = self.relu(out)
+        out = out + residual
         out = self.last_conv(out)
-        #out = out + residual
+        #
         
         return out 
 
@@ -1129,13 +1135,13 @@ class TransformerCNN(nn.Module):
         self.feature_dim = feature_dim
         self.output_dims = output_dims
         num_heads = 1
-        self.attention_net_1 = LocalAttentionNet(self.feature_dim+2,num_heads,padding=1,kernel_size=3)
-        self.attention_net_2 = LocalAttentionNet(self.feature_dim+1+2*num_heads,num_heads, padding=1, kernel_size=3)
-        self.attention_net_3 = LocalAttentionNet(self.feature_dim+1+2*num_heads,num_heads, padding=1, kernel_size=3)
+        self.attention_net_1 = LocalAttentionNet(self.feature_dim+2,num_heads,padding=2,kernel_size=5)
+        self.attention_net_2 = LocalAttentionNet(self.feature_dim+1+2*num_heads,num_heads, padding=2, kernel_size=5)
+        self.attention_net_3 = LocalAttentionNet(self.feature_dim+1+2*num_heads,num_heads, padding=2, kernel_size=5)
         
         #self.attention_net_4 = LocalAttentionNet(self.feature_dim+1+2*num_heads,1, padding=2, kernel_size=5)
 
-        self.foreground_detector = LocalAttentionNet(self.feature_dim,1, padding=1, kernel_size=3)
+        self.foreground_detector = LocalAttentionNet(self.feature_dim,1, padding=2, kernel_size=5)
 
         #self.object_net = Residual(self.feature_dim+3,self.feature_dim,padding=0,kernel_size=1,pool=True)
         
@@ -1154,10 +1160,10 @@ class TransformerCNN(nn.Module):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight.data)
-                m.bias.data.zero_()
+                #m.bias.data.zero_()
             elif isinstance(m, nn.Linear):
                 nn.init.kaiming_normal_(m.weight.data)
-                m.bias.data.zero_()
+                #m.bias.data.zero_()
 
         #self.attention_net_3.conv2.bias.data.fill_(-2.19)
 
@@ -1173,9 +1179,9 @@ class TransformerCNN(nn.Module):
 
         indicator_maps = []
         for i in range(k):
-            indicator_map = torch.zeros(attention_map.size()).view(batch_size,-1).to(attention_map.device)
+            indicator_map = torch.zeros(attention_map.size()).view(batch_size,-1).to(attention_map.device)-1
             indices = top_k_indices[:,i].unsqueeze(1)
-            indicator_map = indicator_map.scatter_(1,indices,1).view_as(attention_map)
+            indicator_map = indicator_map.scatter_(1,indices,1).view_as(attention_map)*3
             indicator_maps.append(indicator_map)
         
         return indicator_maps
@@ -1279,7 +1285,7 @@ class TransformerCNN(nn.Module):
         indicators = self.local_max(foreground_map,max_num_objects)
 
         if True:
-            attentions = self.transformer_layer_start(foreground,foreground_map,indicators)
+            attentions = self.transformer_layer_start(object_features,foreground_map,indicators)
         else:
             attentions = torch.normal(-1,1,size=(batch_size,1,16,24)).to(object_features.device)
         attentions = self.transformer_layer(object_features,foreground_map, attentions, self.attention_net_2)
