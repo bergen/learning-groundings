@@ -1094,7 +1094,10 @@ class LocalAttentionNet(nn.Module):
 
         self.residual_conv = nn.Conv2d(inp_dim, out_dim, padding=0, kernel_size=1, bias=True)
         self.conv1 = nn.Conv2d(inp_dim, out_dim, padding=padding, kernel_size=kernel_size, bias=True)
+        #self.norm = nn.InstanceNorm2d(out_dim,affine=True)
         #self.conv2 = nn.Conv2d(inp_dim,out_dim, padding=padding, kernel_size=kernel_size, bias=True)
+
+        self.last_conv = nn.Conv2d(out_dim, out_dim, kernel_size=1)
 
         self.reset_parameters()
 
@@ -1107,11 +1110,15 @@ class LocalAttentionNet(nn.Module):
                 nn.init.kaiming_normal_(m.weight.data)
                 m.bias.data.zero_()
 
+        self.last_conv.bias.data.fill_(-2.19)
+
     def forward(self, x):
-        residual = self.residual_conv(x)
+        #residual = self.residual_conv(x)
         out = self.conv1(x)
+        #out = self.norm(out)
         out = self.relu(out)
-        out = out + residual
+        out = self.last_conv(out)
+        #out = out + residual
         
         return out 
 
@@ -1125,6 +1132,7 @@ class TransformerCNN(nn.Module):
         self.attention_net_1 = LocalAttentionNet(self.feature_dim+2,num_heads,padding=1,kernel_size=3)
         self.attention_net_2 = LocalAttentionNet(self.feature_dim+1+2*num_heads,num_heads, padding=1, kernel_size=3)
         self.attention_net_3 = LocalAttentionNet(self.feature_dim+1+2*num_heads,num_heads, padding=1, kernel_size=3)
+        
         #self.attention_net_4 = LocalAttentionNet(self.feature_dim+1+2*num_heads,1, padding=2, kernel_size=5)
 
         self.foreground_detector = LocalAttentionNet(self.feature_dim,1, padding=1, kernel_size=3)
@@ -1140,7 +1148,7 @@ class TransformerCNN(nn.Module):
         #self.object_features_layer = nn.Sequential(nn.Linear(feature_dim,output_dims[1]),nn.ReLU())
         self.obj1_linear = nn.Linear(output_dims[1],int(output_dims[1]/2))
         self.obj2_linear = nn.Linear(output_dims[1],int(output_dims[1]/2))
-        self.reset_parameters()
+        #self.reset_parameters()
 
     def reset_parameters(self):
         for m in self.modules():
@@ -1271,7 +1279,7 @@ class TransformerCNN(nn.Module):
         indicators = self.local_max(foreground_map,max_num_objects)
 
         if True:
-            attentions = self.transformer_layer_start(object_features,foreground_map,indicators)
+            attentions = self.transformer_layer_start(foreground,foreground_map,indicators)
         else:
             attentions = torch.normal(-1,1,size=(batch_size,1,16,24)).to(object_features.device)
         attentions = self.transformer_layer(object_features,foreground_map, attentions, self.attention_net_2)
@@ -1288,7 +1296,7 @@ class TransformerCNN(nn.Module):
             #    attention = torch.exp(log_scope).squeeze(1)
 
             #attention = attention.squeeze(1)
-            objects = torch.einsum("bjk,bljk -> bl", attention, object_features)
+            objects = torch.einsum("bjk,bljk -> bl", attention, foreground)
             #objects = self.maxpool(obj_cols_weighted).squeeze(-1).squeeze(-1)
             
             object_representations.append(objects)
