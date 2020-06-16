@@ -1177,12 +1177,40 @@ class TransformerCNN(nn.Module):
 
         top_k_indices = torch.topk(map_local_max.view(batch_size,-1),k)[1]
 
+        m_x, m_y = torch.meshgrid(torch.arange(16),torch.arange(24))
+        m_x = m_x.to(attention_map.device).float()
+        m_y = m_y.to(attention_map.device).float()
+        
+
+        
+
+
+        
+        
+        sigma = 1
+
         indicator_maps = []
         for i in range(k):
-            indicator_map = torch.zeros(attention_map.size()).view(batch_size,-1).to(attention_map.device)-1
+            indicator_map = torch.zeros(attention_map.size()).view(batch_size,-1).to(attention_map.device)
             indices = top_k_indices[:,i].unsqueeze(1)
-            indicator_map = indicator_map.scatter_(1,indices,1).view_as(attention_map)*3
-            indicator_maps.append(indicator_map)
+            print(indices)
+            indicator_map = indicator_map.scatter_(1,indices,1).view_as(attention_map)
+
+            x_pos = torch.einsum("bijk,jk -> b",indicator_map,m_x).view(batch_size,1,1,1)
+            y_pos = torch.einsum("bijk,jk -> b",indicator_map,m_y).view(batch_size,1,1,1)
+
+            #m_x = m_x.view(1,1,16,24)
+            #m_y = m_y.view(1,1,16,24)
+
+            Fx = torch.exp(-torch.pow(x_pos - m_x, 2) / sigma) #should be batchx16
+            Fy = torch.exp(-torch.pow(y_pos - m_y, 2) / sigma) #should be batchx24
+
+            probs = Fx*Fy
+            probs = probs / probs.sum(dim=(2,3),keepdim=True)
+
+
+
+            indicator_maps.append(probs)
         
         return indicator_maps
 
@@ -1237,7 +1265,8 @@ class TransformerCNN(nn.Module):
     def transformer_layer_start(self,feature_map,foreground_map, indicators):
         attentions = []
         for indicator_map in indicators:
-            rep = torch.cat((feature_map,foreground_map,indicator_map),dim=1)
+            filtered_foreground = foreground_map * indicator_map
+            rep = torch.cat((feature_map,foreground_map,filtered_foreground),dim=1)
             attention = self.attention_net_1(rep)
             attentions.append(attention)
         return attentions
@@ -1308,7 +1337,7 @@ class TransformerCNN(nn.Module):
             #    attention = torch.exp(log_scope).squeeze(1)
 
             #attention = attention.squeeze(1)
-            objects = torch.einsum("bjk,bljk -> bl", attention, foreground)
+            objects = torch.einsum("bjk,bljk -> bl", attention, object_features)
             #objects = self.maxpool(obj_cols_weighted).squeeze(-1).squeeze(-1)
             
             object_representations.append(objects)
