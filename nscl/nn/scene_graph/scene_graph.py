@@ -1187,13 +1187,13 @@ class TransformerCNN(nn.Module):
 
         
         
-        sigma = 1
+        sigma = 2
 
         indicator_maps = []
+        print(top_k_indices)
         for i in range(k):
             indicator_map = torch.zeros(attention_map.size()).view(batch_size,-1).to(attention_map.device)
             indices = top_k_indices[:,i].unsqueeze(1)
-            print(indices)
             indicator_map = indicator_map.scatter_(1,indices,1).view_as(attention_map)
 
             x_pos = torch.einsum("bijk,jk -> b",indicator_map,m_x).view(batch_size,1,1,1)
@@ -1202,11 +1202,11 @@ class TransformerCNN(nn.Module):
             #m_x = m_x.view(1,1,16,24)
             #m_y = m_y.view(1,1,16,24)
 
-            Fx = torch.exp(-torch.pow(x_pos - m_x, 2) / sigma) #should be batchx16
-            Fy = torch.exp(-torch.pow(y_pos - m_y, 2) / sigma) #should be batchx24
+            Fx = -torch.pow(x_pos - m_x, 2) / sigma 
+            Fy = -torch.pow(y_pos - m_y, 2) / sigma 
 
-            probs = Fx*Fy
-            probs = probs / probs.sum(dim=(2,3),keepdim=True)
+            probs = Fx+Fy
+            probs = probs - probs.logsumexp(dim=(2,3),keepdim=True)
 
 
 
@@ -1265,7 +1265,7 @@ class TransformerCNN(nn.Module):
     def transformer_layer_start(self,feature_map,foreground_map, indicators):
         attentions = []
         for indicator_map in indicators:
-            filtered_foreground = foreground_map * indicator_map
+            filtered_foreground = foreground_map + indicator_map
             rep = torch.cat((feature_map,foreground_map,filtered_foreground),dim=1)
             attention = self.attention_net_1(rep)
             attentions.append(attention)
