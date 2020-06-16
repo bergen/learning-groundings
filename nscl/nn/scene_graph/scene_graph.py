@@ -1242,10 +1242,16 @@ class TransformerCNN(nn.Module):
             attentions.append(attention)
         return attentions
 
-    def transformer_layer(self,feature_map,foreground_map, attentions,attention_net):
+    def transformer_layer(self,feature_map,foreground_map, attentions,attention_net, objects_length):
+        max_len = max(objects_length)
+        objects_length = torch.tensor(objects_length)
+        mask = (torch.arange(max_len).expand(len(objects_length), max_len) < objects_length.unsqueeze(1)).to(feature_map.device)
         sum_scope = foreground_map
-        for attention in attentions:
-            sum_scope = sum_scope + F.logsigmoid(-attention)
+        for i in range(len(attentions)):
+            attention = attentions[i]
+            log_probs = F.logsigmoid(-attention)
+            log_probs = torch.einsum("bljk,b -> bljk",log_probs,mask[:,i])
+            sum_scope = sum_scope + log_probs
 
         new_attentions = []
         for attention in attentions:
@@ -1288,9 +1294,9 @@ class TransformerCNN(nn.Module):
             attentions = self.transformer_layer_start(object_features,foreground_map,indicators)
         else:
             attentions = torch.normal(-1,1,size=(batch_size,1,16,24)).to(object_features.device)
-        attentions = self.transformer_layer(object_features,foreground_map, attentions, self.attention_net_2)
+        attentions = self.transformer_layer(object_features,foreground_map, attentions, self.attention_net_2,objects_length)
         #
-        attentions = self.transformer_layer(object_features,foreground_map, attentions, self.attention_net_3)
+        attentions = self.transformer_layer(object_features,foreground_map, attentions, self.attention_net_3,objects_length)
         #attentions = self.transformer_layer(object_features,foreground_map, attentions, self.attention_net_4)
         #print(self.attention_net_4.conv1.weight.data)
 
