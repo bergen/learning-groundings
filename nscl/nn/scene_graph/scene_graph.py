@@ -1190,23 +1190,31 @@ class TransformerCNN(nn.Module):
         sigma = 2
 
         indicator_maps = []
-        print(top_k_indices)
+        #print(top_k_indices)
         for i in range(k):
-            indicator_map = torch.zeros(attention_map.size()).view(batch_size,-1).to(attention_map.device)
-            indices = top_k_indices[:,i].unsqueeze(1)
-            indicator_map = indicator_map.scatter_(1,indices,1).view_as(attention_map)
+            if False:
+                indicator_map = torch.zeros(attention_map.size()).view(batch_size,-1).to(attention_map.device)
+                indices = top_k_indices[:,i].unsqueeze(1)
+                indicator_map = indicator_map.scatter_(1,indices,1).view_as(attention_map)
 
-            x_pos = torch.einsum("bijk,jk -> b",indicator_map,m_x).view(batch_size,1,1,1)
-            y_pos = torch.einsum("bijk,jk -> b",indicator_map,m_y).view(batch_size,1,1,1)
+                x_pos = torch.einsum("bijk,jk -> b",indicator_map,m_x).view(batch_size,1,1,1)
+                y_pos = torch.einsum("bijk,jk -> b",indicator_map,m_y).view(batch_size,1,1,1)
 
-            #m_x = m_x.view(1,1,16,24)
-            #m_y = m_y.view(1,1,16,24)
+                #m_x = m_x.view(1,1,16,24)
+                #m_y = m_y.view(1,1,16,24)
+
+            else:
+                x_pos = torch.tensor(i/k * 16).expand(batch_size,1,1,1).to(attention_map.device)
+                y_pos = torch.tensor(i/k * 24).expand(batch_size,1,1,1).to(attention_map.device)
+
 
             Fx = -torch.pow(x_pos - m_x, 2) / sigma 
-            Fy = -torch.pow(y_pos - m_y, 2) / sigma 
+            Fy = -torch.pow(y_pos - m_y, 2) / sigma
 
             probs = Fx+Fy
             probs = probs - probs.logsumexp(dim=(2,3),keepdim=True)
+
+            #print(probs)
 
 
 
@@ -1337,7 +1345,7 @@ class TransformerCNN(nn.Module):
             #    attention = torch.exp(log_scope).squeeze(1)
 
             #attention = attention.squeeze(1)
-            objects = torch.einsum("bjk,bljk -> bl", attention, object_features)
+            objects = torch.einsum("bjk,bljk -> bl", attention, foreground)
             #objects = self.maxpool(obj_cols_weighted).squeeze(-1).squeeze(-1)
             
             object_representations.append(objects)
