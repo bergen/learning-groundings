@@ -1167,8 +1167,10 @@ class TransformerCNN(nn.Module):
 
         #self.attention_net_3.conv2.bias.data.fill_(-2.19)
 
-    def local_max(self,attention_map,k):
+    def local_max(self,attention_map,objects_length):
         batch_size = attention_map.size(0)
+        k = max(objects_length)
+        objects_length = torch.tensor(objects_length)
 
         map_local_max = self.maxpool(attention_map)
         map_local_max = torch.eq(attention_map,map_local_max)
@@ -1184,7 +1186,7 @@ class TransformerCNN(nn.Module):
 
         
 
-
+        #print(objects_length)
         
         
         sigma = 2
@@ -1192,6 +1194,7 @@ class TransformerCNN(nn.Module):
         indicator_maps = []
         #print(top_k_indices)
         for i in range(k):
+            #print(i)
             if False:
                 indicator_map = torch.zeros(attention_map.size()).view(batch_size,-1).to(attention_map.device)
                 indices = top_k_indices[:,i].unsqueeze(1)
@@ -1204,9 +1207,10 @@ class TransformerCNN(nn.Module):
                 #m_y = m_y.view(1,1,16,24)
 
             else:
-                x_pos = torch.tensor(i/k * 16).expand(batch_size,1,1,1).to(attention_map.device)
-                y_pos = torch.tensor(i/k * 24).expand(batch_size,1,1,1).to(attention_map.device)
+                x_pos = (torch.div(torch.tensor(i, dtype=torch.float),objects_length) * 16).view(batch_size,1,1,1).to(attention_map.device)
+                y_pos = (torch.div(torch.tensor(i, dtype=torch.float),objects_length) * 24).view(batch_size,1,1,1).to(attention_map.device)
 
+            #print(x_pos)
 
             Fx = -torch.pow(x_pos - m_x, 2) / sigma 
             Fy = -torch.pow(y_pos - m_y, 2) / sigma
@@ -1325,7 +1329,7 @@ class TransformerCNN(nn.Module):
 
         object_representations = []
 
-        indicators = self.local_max(foreground_map,max_num_objects)
+        indicators = self.local_max(foreground_map,objects_length)
 
         if True:
             attentions = self.transformer_layer_start(object_features,foreground_map,indicators)
