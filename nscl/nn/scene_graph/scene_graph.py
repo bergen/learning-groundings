@@ -1,8 +1,8 @@
 #! /usr/bin/env python3
+# Email  : maojiayuan@gmail.com
 # -*- coding: utf-8 -*-
 # File   : scene_graph.py
 # Author : Jiayuan Mao
-# Email  : maojiayuan@gmail.com
 # Date   : 07/19/2018
 #
 # This file is part of NSCL-PyTorch.
@@ -1082,6 +1082,7 @@ class AttentionNet(nn.Module):
         return attention 
 
 
+
 class LocalAttentionNet(nn.Module):
     def __init__(self, inp_dim, out_dim,padding=1,kernel_size=3,pool=False):
         super(LocalAttentionNet, self).__init__()
@@ -1167,6 +1168,27 @@ class TransformerCNN(nn.Module):
 
         #self.attention_net_3.conv2.bias.data.fill_(-2.19)
 
+    def sample_init(self,objects_length):
+        x_pos = []
+        y_pos = []
+        max_length = max(objects_length)
+        dist = 4
+        x_pos.append(random.randint(0,16))
+        y_pos.append(random.randint(0,24))
+        for i in range(max_length-1):
+            condition = lambda a,b: False
+            while not all(map(condition,x_pos,y_pos)):
+                x = random.randint(0,16)
+                y = random.randint(0,24)
+                condition = lambda a,b: (x-a)^2+(y-b)^2 <= dist^2
+            x_pos.append(x)
+            y_pos.append(y)
+
+        return x_pos, y_pos
+
+
+
+
     def local_max(self,attention_map,objects_length):
         batch_size = attention_map.size(0)
         k = max(objects_length)
@@ -1192,6 +1214,8 @@ class TransformerCNN(nn.Module):
         sigma = 2
 
         indicator_maps = []
+
+        x_pos_all, y_pos_all = self.sample_init(objects_length)
         #print(top_k_indices)
         for i in range(k):
             #print(i)
@@ -1207,8 +1231,8 @@ class TransformerCNN(nn.Module):
                 #m_y = m_y.view(1,1,16,24)
 
             else:
-                x_pos = (torch.div(torch.tensor(i, dtype=torch.float),objects_length) * 16).view(batch_size,1,1,1).to(attention_map.device)
-                y_pos = (torch.div(torch.tensor(i, dtype=torch.float),objects_length) * 24).view(batch_size,1,1,1).to(attention_map.device)
+                x_pos = torch.tensor(x_pos_all[i], dtype=torch.float).expand(batch_size,1,1,1).to(attention_map.device)
+                y_pos = torch.tensor(y_pos_all[i], dtype=torch.float).expand(batch_size,1,1,1).to(attention_map.device)
 
             #print(x_pos)
 
@@ -1276,6 +1300,8 @@ class TransformerCNN(nn.Module):
 
     def transformer_layer_start(self,feature_map,foreground_map, indicators):
         attentions = []
+        foreground_map = F.logsigmoid(foreground_map)
+
         for indicator_map in indicators:
             filtered_foreground = foreground_map + indicator_map
             rep = torch.cat((feature_map,foreground_map,filtered_foreground),dim=1)
@@ -1287,7 +1313,9 @@ class TransformerCNN(nn.Module):
         max_len = max(objects_length)
         objects_length = torch.tensor(objects_length)
         mask = (torch.arange(max_len).expand(len(objects_length), max_len) < objects_length.unsqueeze(1)).to(feature_map.device)
-        sum_scope = foreground_map
+
+        sum_scope = F.logsigmoid(foreground_map)
+
         for i in range(len(attentions)):
             attention = attentions[i]
             log_probs = F.logsigmoid(-attention)
