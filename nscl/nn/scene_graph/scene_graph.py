@@ -1215,11 +1215,11 @@ class TransformerCNN(nn.Module):
 
         indicator_maps = []
 
-        x_pos_all, y_pos_all = self.sample_init(objects_length)
+        #x_pos_all, y_pos_all = self.sample_init(objects_length)
         #print(top_k_indices)
         for i in range(k):
             #print(i)
-            if False:
+            if True:
                 indicator_map = torch.zeros(attention_map.size()).view(batch_size,-1).to(attention_map.device)
                 indices = top_k_indices[:,i].unsqueeze(1)
                 indicator_map = indicator_map.scatter_(1,indices,1).view_as(attention_map)
@@ -1303,7 +1303,7 @@ class TransformerCNN(nn.Module):
         foreground_map = F.logsigmoid(foreground_map)
 
         for indicator_map in indicators:
-            filtered_foreground = foreground_map + indicator_map
+            filtered_foreground = indicator_map
             rep = torch.cat((feature_map,foreground_map,filtered_foreground),dim=1)
             attention = self.attention_net_1(rep)
             attentions.append(attention)
@@ -1314,7 +1314,10 @@ class TransformerCNN(nn.Module):
         objects_length = torch.tensor(objects_length)
         mask = (torch.arange(max_len).expand(len(objects_length), max_len) < objects_length.unsqueeze(1)).to(feature_map.device)
 
-        sum_scope = F.logsigmoid(foreground_map)
+        foreground_map = F.logsigmoid(foreground_map)
+
+        batch_size = feature_map.size(0)
+        sum_scope = torch.zeros(batch_size,1,1,1).to(feature_map.device)
 
         for i in range(len(attentions)):
             attention = attentions[i]
