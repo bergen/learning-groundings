@@ -117,6 +117,7 @@ parser.add_argument('--resnet-type', default='resnet34', choices=['resnet34', 'r
 parser.add_argument('--transformer-use-queries', type='bool', default=False)
 parser.add_argument('--filter-ops', type='bool', default=False)
 parser.add_argument('--object-dropout', type='bool', default=False)
+parser.add_argument('--object-dropout-rate', type=float, default=0.03)
 
 
 args = parser.parse_args()

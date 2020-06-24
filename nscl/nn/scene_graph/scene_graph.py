@@ -1133,6 +1133,7 @@ class TransformerCNN(nn.Module):
     def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True, args=None,img_input_dim=(16,24)):
         super().__init__()
         self.object_dropout = args.object_dropout
+        self.dropout_rate = args.object_dropout_rate
         self.feature_dim = feature_dim
         self.output_dims = output_dims
         num_heads = 1
@@ -1283,9 +1284,12 @@ class TransformerCNN(nn.Module):
 
             if self.training:
                 if self.object_dropout:
-                    if random.random()<0.1:
-                        index = random.randrange(num_objects)
-                        object_representations[index,:]=0
+                    #if random.random()<self.dropout_rate:
+                    #    index = random.randrange(num_objects)
+                    #    object_representations[index,:]=0
+                    for j in range(num_objects):
+                        if random.random()<self.dropout_rate:
+                            object_representations[j,:]=0
 
             object_pair_representations = torch.squeeze(object_pair_representations_batched[i,0:num_objects,0:num_objects,:],dim=0).contiguous()
             
