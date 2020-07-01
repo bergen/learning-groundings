@@ -876,8 +876,8 @@ class SceneGraphObjectSupervision(nn.Module):
         self.object_feature_fc = nn.Sequential(nn.ReLU(True), nn.Linear(output_dims[1] * self.pool_size ** 2, output_dims[1]))
         self.relation_feature_fc = nn.Sequential(nn.ReLU(True), nn.Linear(output_dims[2] * self.pool_size ** 2, output_dims[2]))
 
-        self.obj1_linear = nn.Linear(output_dims[1],int(output_dims[1]/2))
-        self.obj2_linear = nn.Linear(output_dims[1],int(output_dims[1]/2))
+        self.obj1_linear = nn.Linear(output_dims[1],int(output_dims[1]))
+        self.obj2_linear = nn.Linear(output_dims[1],int(output_dims[1]))
 
 
         #self.combine_objects = nn.Linear(2*output_dims[1],output_dims[1])
@@ -966,7 +966,7 @@ class SceneGraphObjectSupervision(nn.Module):
         obj1_representations = obj1_representations.repeat(1,num_objects,1)
         obj2_representations = obj2_representations.repeat(num_objects,1,1)
 
-        object_pair_representations = torch.cat((obj1_representations,obj2_representations),dim=-1)
+        object_pair_representations = obj1_representations + obj2_representations
         #object_pair_representations = self.combine_objects(object_pair_representations)
 
 
@@ -1154,8 +1154,8 @@ class TransformerCNN(nn.Module):
         #self.feature_net = Residual(feature_dim, feature_dim, padding=0, kernel_size=1)
 
         #self.object_features_layer = nn.Sequential(nn.Linear(feature_dim,output_dims[1]),nn.ReLU())
-        self.obj1_linear = nn.Linear(output_dims[1],int(output_dims[1]/2))
-        self.obj2_linear = nn.Linear(output_dims[1],int(output_dims[1]/2))
+        self.obj1_linear = nn.Linear(output_dims[1],int(output_dims[1]))
+        self.obj2_linear = nn.Linear(output_dims[1],int(output_dims[1]))
         #self.reset_parameters()
 
     def reset_parameters(self):
@@ -1448,7 +1448,7 @@ class TransformerCNN(nn.Module):
         obj1_representations = obj1_representations.repeat(1,1,num_objects,1)  
         obj2_representations = obj2_representations.repeat(1,num_objects,1,1)
 
-        object_pair_representations = torch.cat((obj1_representations,obj2_representations),dim=-1)
+        object_pair_representations = obj1_representations+obj2_representations
         #object_pair_representations = object_pair_representations
 
         return object_pair_representations
