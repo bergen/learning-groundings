@@ -165,10 +165,13 @@ class ProgramExecutorContext(nn.Module):
         a = torch.exp(selected1).sum(dim=-1)
         b = torch.exp(selected2).sum(dim=-1)
 
-        if self.training or _test_quantize.value < InferenceQuantizationMethod.STANDARD.value:
-            return nn.LogSigmoid()(((a - b + self._count_margin) / self._count_tau))
+        #a = torch.logsumexp(selected1,dim=0)
+        #b = torch.logsumexp(selected2,dim=0)
+
+        if self.training:
+            return nn.LogSigmoid()(((self._count_margin + a - b ) / self._count_tau))
         else:
-            return nn.LogSigmoid()(((a - b + self._count_margin) / self._count_tau))
+            return nn.LogSigmoid()(((self._count_margin + a - b ) / self._count_tau))
         #else:
         #    return nn.LogSigmoid()(-10 + 20 * (self.count(selected1) > self.count(selected2)).float()) #this is probably wrong
 
@@ -176,12 +179,15 @@ class ProgramExecutorContext(nn.Module):
         return self.count_greater(selected2, selected1)
 
     def count_equal(self, selected1, selected2):
+        #selected1 and selected2 are in log probability space
         a = torch.exp(selected1).sum(dim=-1)
         b = torch.exp(selected2).sum(dim=-1)
-        if self.training or _test_quantize.value < InferenceQuantizationMethod.STANDARD.value:
-            return nn.LogSigmoid()(((self._count_equal_margin - (a - b).abs()) / (self._count_equal_margin) / self._count_equal_tau))
-        else:
-            return nn.LogSigmoid()(((self._count_equal_margin - (a - b).abs()) / (self._count_equal_margin) / self._count_equal_tau))
+        #a = torch.logsumexp(selected1,dim=0)
+        #b = torch.logsumexp(selected2,dim=0)
+        return nn.LogSigmoid()(((self._count_equal_margin - (a - b).abs()) / self._count_equal_tau))
+        
+
+    
 
     def query(self, selected, group, attribute_groups):
         val, index = torch.max(selected,0)

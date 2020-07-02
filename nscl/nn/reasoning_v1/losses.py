@@ -237,6 +237,11 @@ class QALoss(MultitaskLossBase):
                 else:
                     monitors.setdefault(new_key, []).append((0, acc_w))
 
+            program = feed_dict['program_seq'][j]
+            ops = [f['op'] for f in program]
+            if 'relate' in ops:
+                new_key = key+'/relate'
+                monitors.setdefault(new_key, []).append((int(gt == argmax), acc_w))
 
             if self.training and self.add_supervision:
                 l = loss(a, gt)

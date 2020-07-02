@@ -1281,6 +1281,7 @@ class TransformerCNN(nn.Module):
         for i in range(batch_size):
             num_objects = objects_length[i]
             object_representations = torch.squeeze(object_representations_batched[i,0:num_objects,:],dim=0)
+            object_pair_representations = torch.squeeze(object_pair_representations_batched[i,0:num_objects,0:num_objects,:],dim=0).contiguous()
 
             if self.training:
                 if self.object_dropout:
@@ -1290,8 +1291,10 @@ class TransformerCNN(nn.Module):
                     for j in range(num_objects):
                         if random.random()<self.dropout_rate:
                             object_representations[j,:]=0
+                            object_pair_representations[j,:,:]=0
+                            object_pair_representations[:,j,:]=0
 
-            object_pair_representations = torch.squeeze(object_pair_representations_batched[i,0:num_objects,0:num_objects,:],dim=0).contiguous()
+            
             
             outputs.append([
                         None,
