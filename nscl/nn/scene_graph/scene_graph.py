@@ -1275,13 +1275,14 @@ class TransformerCNN(nn.Module):
         object_representations_batched = self._norm(object_values_batched)
         #object_representations_batched = self._norm(self.object_features_layer(object_values_batched))
         object_pair_representations_batched = self._norm(self.objects_to_pair_representations(object_representations_batched))
+        
 
 
         outputs = []
         for i in range(batch_size):
             num_objects = objects_length[i]
             object_representations = torch.squeeze(object_representations_batched[i,0:num_objects,:],dim=0)
-            object_pair_representations = torch.squeeze(object_pair_representations_batched[i,0:num_objects,0:num_objects,:],dim=0).contiguous()
+            object_pair_representations = torch.squeeze(object_pair_representations_batched[i,0:num_objects,0:num_objects,:],dim=0)
 
             if self.training:
                 if self.object_dropout:
@@ -1290,10 +1291,11 @@ class TransformerCNN(nn.Module):
                     #    object_representations[index,:]=0
                     for j in range(num_objects):
                         if random.random()<self.dropout_rate:
-                            object_representations[j,:]=0
-                            object_pair_representations[j,:,:]=0
-                            object_pair_representations[:,j,:]=0
+                            object_representations = object_representations.index_fill(0,torch.tensor(j).to(object_representations.device),0)
+                            #object_pair_representations[j,:,:]=0
+                            #object_pair_representations[:,j,:]=0
 
+            #object_pair_representations = self._norm(self.objects_to_pair_representations(object_representations))
             
             
             outputs.append([
@@ -1455,6 +1457,7 @@ class TransformerCNN(nn.Module):
         #object_pair_representations = object_pair_representations
 
         return object_pair_representations
+    
 
     def _norm(self, x):
         return x / x.norm(2, dim=-1, keepdim=True)
