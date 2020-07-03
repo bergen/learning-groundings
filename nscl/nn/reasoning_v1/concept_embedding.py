@@ -155,7 +155,7 @@ class ConceptEmbedding(nn.Module):
     _margin_cross = 0.5
     #_tau = 0.1
 
-    def similarity(self, query, identifier,k=1):
+    def similarity(self, query, identifier,k=1,mutual_exclusive=True):
         #identifier is a concept
         #returns a list of log probabilities: prob that each object is the concept
 
@@ -181,13 +181,26 @@ class ConceptEmbedding(nn.Module):
 
         
 
-        elif k==1: 
-            prob, word2ix = self.query_attribute(query,attributes[attribute_index])
+        elif k==1:
+            if mutual_exclusive:
+                prob, word2ix = self.query_attribute(query,attributes[attribute_index])
 
 
-            concept_index = word2ix[identifier]
+                concept_index = word2ix[identifier]
 
-            log_prob = prob[:,concept_index]
+                log_prob = prob[:,concept_index]
+            else:
+                attr_identifier = attributes[attribute_index]
+                mapping = self.get_attribute(attr_identifier)
+                attr_id = self.attribute2id[attr_identifier]
+            
+                query = mapping(query)
+                query = query / query.norm(2, dim=-1, keepdim=True)
+                concept_embedding = concept.embedding[attr_id]
+                logits = (torch.matmul(query,concept_embedding)/self.tau)
+                log_prob = nn.LogSigmoid()(logits)
+
+
 
         
 

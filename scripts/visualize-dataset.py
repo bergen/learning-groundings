@@ -63,13 +63,14 @@ parser.add_argument('--attention-type', default='cnn', choices=['cnn', 'naive-rn
                                                                 'scene-graph-object-supervised',
                                                                 'structured-subtractive-rnn-batched',
                                                                 'transformer',
-                                                                'monet-lite'])
-
+                                                                'monet-lite',
+                                                                'transformer-cnn'])
 parser.add_argument('--attention-loss', type='bool', default=False)
 parser.add_argument('--anneal-rnn', type='bool', default=False)
 parser.add_argument('--adversarial-loss', type='bool', default=False)
 parser.add_argument('--adversarial-lr', type=float, default=0.0002, metavar='N', help='initial learning rate')
 parser.add_argument('--presupposition-semantics', type='bool', default=False)
+parser.add_argument('--mutual-exclusive', type='bool', default=True)
 parser.add_argument('--subtractive-rnn', type='bool', default=False)
 parser.add_argument('--subtract-from-scene', type='bool', default=True)
 parser.add_argument('--rnn-type', default='lstm', choices=['lstm','gru'])
@@ -79,9 +80,11 @@ parser.add_argument('--optimizer', default='adamw', choices=['adamw', 'rmsprop']
 parser.add_argument('--fine-tune-resnet-epoch', type=int, default=100)
 parser.add_argument('--fine-tune-semantics-epoch', type=int, default=100)
 parser.add_argument('--restrict-finetuning', type='bool', default=True)
-parser.add_argument('--resnet-type', default='resnet34', choices=['resnet34', 'resnet101','cmc_resnet','simclr_resnet'])
+parser.add_argument('--resnet-type', default='resnet34', choices=['resnet34', 'resnet101','cmc_resnet','simclr_resnet','resnet34_pytorch'])
 parser.add_argument('--transformer-use-queries', type='bool', default=False)
 parser.add_argument('--filter-ops', type='bool', default=False)
+parser.add_argument('--object-dropout', type='bool', default=False)
+parser.add_argument('--object-dropout-rate', type=float, default=0.03)
 
 
 args = parser.parse_args()
@@ -509,7 +512,8 @@ def visualize_scene_graph():
 
 
             #get the attentions
-            object_attention = torch.unsqueeze(torch.unsqueeze(attention[0,j,:].cpu(),dim=0),dim=0)
+            object_attention = torch.unsqueeze(torch.unsqueeze((attention[0,j,:]/(torch.max(attention[0,j,:]))).cpu(),dim=0),dim=0)
+
 
             upsampled_attention = torch.squeeze(nn.functional.interpolate(object_attention,size=(320,480)))
             #print(upsampled_attention)

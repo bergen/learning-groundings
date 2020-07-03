@@ -1399,10 +1399,15 @@ class TransformerCNN(nn.Module):
 
     def compute_attention(self,object_features,objects,objects_length,visualize_foreground=False):
         max_num_objects = max(objects_length)
-        batch_size = object_features.size(0)
+        #obj_coord_map = coord_map((object_features.size(2),object_features.size(3)),object_features.device).unsqueeze(0)
+        #obj_coord_map = obj_coord_map.repeat(batch_size,1,1,1)
 
+        #object_coord_cat = torch.cat((object_features,obj_coord_map),dim=1)
         foreground_map = self.foreground_detector(object_features)
-        foreground_attention = F.sigmoid(foreground_map).squeeze(1)
+
+        #foreground_map = foreground_features_fused[:,0,:,:].unsqueeze(1)
+        #collapsed_features = foreground_features_fused[:,1:,:,:]
+        foreground_attention = torch.sigmoid(foreground_map).squeeze(1)
         foreground = torch.einsum("bjk,bljk -> bljk", foreground_attention, object_features)
 
 
@@ -1411,28 +1416,34 @@ class TransformerCNN(nn.Module):
 
         #init_scope = torch.zeros((1, 1, 16, 24)).to(object_features.device)
         #log_scope = init_scope.expand(batch_size, -1, -1, -1)
-        log_scope = foreground_map
+        #log_scope = F.logsigmoid(foreground_map)
 
-        attentions = []
+        attention_list = []
+
+        indicators = self.local_max(foreground_map,objects_length)
+
+        if True:
+            attentions = self.transformer_layer_start(object_features,foreground_map,indicators)
+        else:
+            attentions = torch.normal(-1,1,size=(batch_size,1,16,24)).to(object_features.device)
+        attentions = self.transformer_layer(object_features,foreground_map, attentions, self.attention_net_2,objects_length)
+        #
+        attentions = self.transformer_layer(object_features,foreground_map, attentions, self.attention_net_3,objects_length)
+        #attentions = self.transformer_layer(object_features,foreground_map, attentions, self.attention_net_4)
+        #print(self.attention_net_4.conv1.weight.data)
 
         for slot in range(max_num_objects):
-            #if slot < max_num_objects - 1:
-            x = torch.cat((foreground,log_scope),dim=1)
-            log_attention = self.attention_net(x)
-
-            log_scope = log_scope + F.logsigmoid(-log_attention)
+            
+            attention = F.sigmoid(attentions[slot])
+            attention = attention.squeeze(1)
             #else:
-            #    log_mask = log_scope
+            #    attention = torch.exp(log_scope).squeeze(1)
 
-            attention = F.sigmoid(log_attention).squeeze(1)
+            #attention = attention.squeeze(1)
+            attention_list.append(attention)
 
-            if visualize_foreground:
-                attentions.append(foreground_attention)
-            else:
-                attentions.append(attention)
-
-        attentions = torch.stack(attentions,dim=1)
-        return attentions
+        attention_list = torch.stack(attention_list,dim=1)
+        return attention_list
 
 
         

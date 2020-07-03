@@ -65,7 +65,7 @@ def set_test_quantize(mode):
 
 
 class ProgramExecutorContext(nn.Module):
-    def __init__(self, attribute_taxnomy, relation_taxnomy, features, presupposition_semantics, parameter_resolution, training=True):
+    def __init__(self, attribute_taxnomy, relation_taxnomy, features, presupposition_semantics, parameter_resolution, training=True,mutual_exclusive=True):
         super().__init__()
 
         self.features = features
@@ -81,6 +81,7 @@ class ProgramExecutorContext(nn.Module):
         self._attribute_query_ls_mc_masks = None
 
         self.presupposition_semantics = presupposition_semantics   
+        self.mutual_exclusive = mutual_exclusive
 
         self.train(training)
 
@@ -232,7 +233,7 @@ class ProgramExecutorContext(nn.Module):
                     cg = [cg]
                 mask = None
                 for c in cg:
-                    new_mask = self.taxnomy[k].similarity(self.features[k], c,k=k)
+                    new_mask = self.taxnomy[k].similarity(self.features[k], c,k=k,mutual_exclusive=self.mutual_exclusive)
                     mask = torch.min(mask, new_mask) if mask is not None else new_mask
                 if k == 2 and _apply_self_mask['relate']:
                     mask = do_apply_self_mask(mask)
@@ -278,8 +279,10 @@ class DifferentiableReasoning(nn.Module):
 
         try:
             self.presupposition_semantics = args.presupposition_semantics
+            self.mutual_exclusive = args.mutual_exclusive
         except Exception as e:
             self.presupposition_semantics = False
+            self.mutual_exclusive = True
 
         for i, nr_vars in enumerate(['attribute', 'relation']):
             if nr_vars not in self.used_concepts:
@@ -325,7 +328,7 @@ class DifferentiableReasoning(nn.Module):
 
 
 
-            ctx = ProgramExecutorContext(self.embedding_attribute, self.embedding_relation, features, self.presupposition_semantics, parameter_resolution=self.parameter_resolution, training=self.training)
+            ctx = ProgramExecutorContext(self.embedding_attribute, self.embedding_relation, features, self.presupposition_semantics, parameter_resolution=self.parameter_resolution, training=self.training, mutual_exclusive=self.mutual_exclusive)
 
             for block_id, block in enumerate(prog):
                 op = block['op']
