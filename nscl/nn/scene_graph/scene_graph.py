@@ -1134,6 +1134,9 @@ class TransformerCNN(nn.Module):
         super().__init__()
         self.object_dropout = args.object_dropout
         self.dropout_rate = args.object_dropout_rate
+        self.normalize_objects = args.normalize_objects
+
+
         self.feature_dim = feature_dim
         self.output_dims = output_dims
         num_heads = 1
@@ -1271,8 +1274,10 @@ class TransformerCNN(nn.Module):
 
         object_values_batched  = self.get_objects(object_features, batch_size, objects_length)
 
-
-        object_representations_batched = self._norm(object_values_batched)
+        if self.normalize_objects:
+            object_representations_batched = self._norm(object_values_batched)
+        else:
+            object_representations_batched = object_values_batched
         #object_representations_batched = self._norm(self.object_features_layer(object_values_batched))
         object_pair_representations_batched = self._norm(self.objects_to_pair_representations(object_representations_batched))
         

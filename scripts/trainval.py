@@ -119,6 +119,7 @@ parser.add_argument('--transformer-use-queries', type='bool', default=False)
 parser.add_argument('--filter-ops', type='bool', default=False)
 parser.add_argument('--object-dropout', type='bool', default=False)
 parser.add_argument('--object-dropout-rate', type=float, default=0.03)
+parser.add_argument('--normalize-objects',type='bool',default=True)
 
 
 args = parser.parse_args()
