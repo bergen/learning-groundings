@@ -52,6 +52,7 @@ class Model(ReasoningV1Model):
 
         self.fine_tune_resnet_epoch = args.fine_tune_resnet_epoch
         self.fine_tune_semantics_epoch = args.fine_tune_semantics_epoch
+        self.normalize_objects = args.normalize_objects
 
 
     def get_object_lengths(self,feed_dict):
@@ -119,6 +120,9 @@ class Model(ReasoningV1Model):
                 w=0.01
                 loss += w*self.adversarial_loss(f_sng,feed_dict.adversary)
                 outputs['scene_graph'] = f_sng
+            if not self.normalize_objects: #penalize large object representations
+                w=0.01
+                loss = loss + w*self.regularize_object_magnitude(f_sng)
             return loss, monitors, outputs
         else:
             outputs['monitors'] = monitors
@@ -175,7 +179,15 @@ class Model(ReasoningV1Model):
         
         return w*loss
 
+    def regularize_object_magnitude(self,f_sng):
+        total_loss = torch.tensor(0,dtype=torch.float,device=f_sng[0][1].device)
 
+        for scene in f_sng:
+            objects = scene[1]
+            objects = objects.view(-1)
+
+            total_loss = total_loss + torch.norm(objects)
+        return total_loss
 
 
 def make_model(args, vocab):
