@@ -85,6 +85,8 @@ parser.add_argument('--transformer-use-queries', type='bool', default=False)
 parser.add_argument('--filter-ops', type='bool', default=False)
 parser.add_argument('--object-dropout', type='bool', default=False)
 parser.add_argument('--object-dropout-rate', type=float, default=0.03)
+parser.add_argument('--normalize-objects',type='bool',default=True)
+parser.add_argument('--filter-additive',type='bool',default=False)
 
 
 args = parser.parse_args()
@@ -441,10 +443,10 @@ def get_object_graph(model,features,one_hot):
     q_material = ['material']
     q_shape = ['shape']
 
-    a_color = model.reasoning.inference_query(features,one_hot,q_color)
-    a_size = model.reasoning.inference_query(features,one_hot,q_size)
-    a_material = model.reasoning.inference_query(features,one_hot,q_material)
-    a_shape = model.reasoning.inference_query(features,one_hot,q_shape)
+    a_color = model.reasoning.inference_query(features,one_hot,q_color,args)
+    a_size = model.reasoning.inference_query(features,one_hot,q_size,args)
+    a_material = model.reasoning.inference_query(features,one_hot,q_material,args)
+    a_shape = model.reasoning.inference_query(features,one_hot,q_shape,args)
 
     d['color'] = a_color
     d['size'] = a_size
@@ -512,6 +514,7 @@ def visualize_scene_graph():
 
 
             #get the attentions
+            print(attention[0,j,:])
             object_attention = torch.unsqueeze(torch.unsqueeze((attention[0,j,:]/(torch.max(attention[0,j,:]))).cpu(),dim=0),dim=0)
 
 

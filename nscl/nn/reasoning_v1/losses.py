@@ -187,7 +187,9 @@ class QALoss(MultitaskLossBase):
                 outputs['answer'].append(idx2word[argmax])
                 gt = word2idx[gt]
                 if self.presupposition_semantics:
-                    loss = lambda x, y: self._xent_loss(x,y) - torch.log(p)
+                    #print(p)
+                    loss = lambda x, y, z=p: (self._xent_loss(x,y) - z)
+                    #loss = lambda x, y: self._xent_loss(x,y)
                 else:
                     loss = lambda x, y: self._xent_loss(x,y) 
             elif response_query_type == 'word':

@@ -121,7 +121,7 @@ class Model(ReasoningV1Model):
                 loss += w*self.adversarial_loss(f_sng,feed_dict.adversary)
                 outputs['scene_graph'] = f_sng
             if not self.normalize_objects: #penalize large object representations
-                w=0.01
+                w=0.001
                 loss = loss + w*self.regularize_object_magnitude(f_sng)
             return loss, monitors, outputs
         else:

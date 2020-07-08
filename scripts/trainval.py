@@ -117,9 +117,14 @@ parser.add_argument('--restrict-finetuning', type='bool', default=True)
 parser.add_argument('--resnet-type', default='resnet34', choices=['resnet34', 'resnet101','cmc_resnet','simclr_resnet','resnet34_pytorch'])
 parser.add_argument('--transformer-use-queries', type='bool', default=False)
 parser.add_argument('--filter-ops', type='bool', default=False)
+parser.add_argument('--filter-relate', type='bool', default=False)
 parser.add_argument('--object-dropout', type='bool', default=False)
 parser.add_argument('--object-dropout-rate', type=float, default=0.03)
 parser.add_argument('--normalize-objects',type='bool',default=True)
+parser.add_argument('--filter-additive',type='bool',default=False)
+parser.add_argument('--relate-rescale',type='bool',default=False)
+parser.add_argument('--relate-max',type='bool',default=False)
+parser.add_argument('--logit-semantics',type='bool',default=False)
 
 
 args = parser.parse_args()
@@ -178,8 +183,6 @@ def main():
             ('-lr_' + str(args.lr)) + 
             ('-batch_' + str(args.batch_size)) + 
             ('-attention_' + str(args.attention_type)) +
-            ('-subtractive_rnn_' + str(args.subtractive_rnn))+
-            ('-full_recurrence_' + str(args.full_recurrence))+
             ('-resnet_type_' + str(args.resnet_type)) +
             ('-clip_grad_' + str(args.clip_grad))+
             ('-optimizer_'+str(args.optimizer))
@@ -317,7 +320,10 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
     # assert args.curriculum == 'off', 'Unimplemented feature: curriculum mode {}.'.format(args.curriculum)
     remove_ops = None
     if args.filter_ops:
-        remove_ops = ['relate_attribute_equal','query_attribute_equal']
+        if args.filter_relate:
+            remove_ops = ['relate_attribute_equal','query_attribute_equal','relate']
+        else:
+            ['relate_attribute_equal','query_attribute_equal']
 
     if args.curriculum=='restricted':
         curriculum_strategy = [
@@ -371,14 +377,15 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
     elif args.curriculum=='simple_syntax':
         curriculum_strategy = [
             (0, 3, 4),
-            (10, 4, 4),
-            (20, 5, 4),
-            (30, 6, 4),
-            (40, 7, 4),
-            (50, 8, 4),
-            (60, 9, 4),
-            (70, 10, 4),
-            (80, 10, 25),
+            (10, 3, 6),
+            (25, 4, 6),
+            (35, 5, 6),
+            (45, 6, 6),
+            (55, 7, 6),
+            (65, 8, 6),
+            (75, 9, 6),
+            (85, 10, 6),
+            (95, 10, 25),
             (1e9, None, None)
         ]
     else:

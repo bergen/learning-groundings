@@ -65,7 +65,7 @@ def set_test_quantize(mode):
 
 
 class ProgramExecutorContext(nn.Module):
-    def __init__(self, attribute_taxnomy, relation_taxnomy, features, presupposition_semantics, parameter_resolution, training=True,mutual_exclusive=True):
+    def __init__(self, attribute_taxnomy, relation_taxnomy, features, parameter_resolution,training,args):
         super().__init__()
 
         self.features = features
@@ -80,8 +80,12 @@ class ProgramExecutorContext(nn.Module):
         self._attribute_query_ls_masks = None
         self._attribute_query_ls_mc_masks = None
 
-        self.presupposition_semantics = presupposition_semantics   
-        self.mutual_exclusive = mutual_exclusive
+        self.presupposition_semantics = args.presupposition_semantics   
+        self.mutual_exclusive = args.mutual_exclusive
+        self.filter_additive = args.filter_additive
+        self.relate_rescale = args.relate_rescale
+        self.logit_semantics = args.logit_semantics
+        self.relate_max = args.relate_max
 
         self.train(training)
 
@@ -89,12 +93,13 @@ class ProgramExecutorContext(nn.Module):
         if group is None:
             return selected
         mask = self._get_concept_groups_masks(concept_groups, 1)
-        mask = torch.min(selected.unsqueeze(0), mask)
+        if self.filter_additive:
+            mask = selected.unsqueeze(0) + mask
+        else:
+            mask = torch.min(selected.unsqueeze(0), mask)
         #mask is a list of num_objects log-probabilities. each term is the log-probability that the object has the concept
 
 
-        if torch.is_tensor(group):
-            return (mask * group.unsqueeze(1)).sum(dim=0)
         return mask[group]
 
 
@@ -108,11 +113,20 @@ class ProgramExecutorContext(nn.Module):
         #mask is a num_concept_groups x num_objects x num_objects tensor. it contains, for each object pair, the log probability the object pair satisfies a certain relational concept. 
         #the first dimension indexes the specific concept being used (e.g. 'front')
 
-        mask = (mask + selected.unsqueeze(-1).unsqueeze(0))
-        mask = torch.logsumexp(mask,dim=-2) #need to verify that this logsumexp is over correct dimension
+        if self.relate_rescale or self.logit_semantics:
+            selected = torch.exp(selected)
+            mask = (mask * selected.unsqueeze(-1).unsqueeze(0))
+            
+            mask = torch.sum(mask,dim=-2)
+        elif self.relate_max:
+            val, index = torch.max(selected,dim=0)
+            mask = mask[:,index,:].squeeze(1)
+        else:
+            mask = (mask + selected.unsqueeze(-1).unsqueeze(0))
 
-        if torch.is_tensor(group):
-            return (mask * group.unsqueeze(1)).sum(dim=0)
+            mask = torch.logsumexp(mask,dim=-2) #need to verify that this logsumexp is over correct dimension
+
+
         return mask[group]
 
     def relate_ae(self, selected, group, attribute_groups):
@@ -125,9 +139,13 @@ class ProgramExecutorContext(nn.Module):
         mask = self._get_attribute_groups_masks(attribute_groups)
         #mask is a num_attribute_groups x num_objects x num_objects tensor. it contains, for each object pair, the log probability the object pair has the same attribute value (for example, the same color). 
         #the first dimension indexes the specific attribute being used (e.g. 'color')
-
-        mask = (mask + selected.unsqueeze(-1).unsqueeze(0))
-        mask = torch.logsumexp(mask,dim=-2) #need to verify that this logsumexp is over correct dimension
+        if self.logit_semantics:
+            selected = torch.exp(selected)
+            mask = (mask * selected.unsqueeze(-1).unsqueeze(0))
+            mask = torch.sum(mask,dim=-2)
+        else:
+            mask = (mask + selected.unsqueeze(-1).unsqueeze(0))
+            mask = torch.logsumexp(mask,dim=-2) #need to verify that this logsumexp is over correct dimension
 
         if torch.is_tensor(group):
             return (mask * group.unsqueeze(1)).sum(dim=0)
@@ -139,17 +157,31 @@ class ProgramExecutorContext(nn.Module):
         return nn.LogSoftmax(dim=0)(selected)
 
     def intersect(self, selected1, selected2):
-        return torch.min(selected1, selected2)
+        if self.filter_additive:
+            selected = selected1 + selected2
+        else:
+            selected = torch.min(selected1, selected2)
+
+        return selected
 
     def union(self, selected1, selected2):
-        return torch.max(selected1, selected2)
+        if self.filter_additive:
+            selected = torch.log(1 - (1-torch.exp(selected1))*(1-torch.exp(selected2)))
+        else:
+            selected = torch.max(selected1, selected2)
+
+        return selected
 
     def exist(self, selected):
-        #print(selected)
+        if self.logit_semantics:
+            selected = nn.LogSigmoid()(selected)
+
         return selected.max(dim=-1)[0]
 
 
     def count(self, selected):
+        if self.logit_semantics:
+            selected = nn.LogSigmoid()(selected)
         if self.training:
             return torch.exp(selected).sum(dim=-1)
         else:
@@ -163,6 +195,11 @@ class ProgramExecutorContext(nn.Module):
 
     def count_greater(self, selected1, selected2):
         #selected1 and selected2 are tensors of length num_objects. Each is a tensor of log probabilities (not a distribution). Each number is the log probability that an object satisfies a given property
+        
+        if self.logit_semantics:
+            selected1 = nn.LogSigmoid()(selected1)
+            selected2 = nn.LogSigmoid()(selected2)
+
         a = torch.exp(selected1).sum(dim=-1)
         b = torch.exp(selected2).sum(dim=-1)
 
@@ -181,6 +218,11 @@ class ProgramExecutorContext(nn.Module):
 
     def count_equal(self, selected1, selected2):
         #selected1 and selected2 are in log probability space
+
+        if self.logit_semantics:
+            selected1 = nn.LogSigmoid()(selected1)
+            selected2 = nn.LogSigmoid()(selected2)
+
         a = torch.exp(selected1).sum(dim=-1)
         b = torch.exp(selected2).sum(dim=-1)
         #a = torch.logsumexp(selected1,dim=0)
@@ -191,26 +233,23 @@ class ProgramExecutorContext(nn.Module):
     
 
     def query(self, selected, group, attribute_groups):
-        val, index = torch.max(selected,0)
+        val, index = torch.max(selected,dim=0)
 
         mask, word2idx = self._get_attribute_query_masks(attribute_groups)
         #print(mask)
-        #selected is a probability distribution over objects (not log space)
+        #selected is a probability distribution over objects ( log space)
         #mask is a list consisting of num_objects probability distributions. These probability distributions are in log space.
 
         #selected = torch.log(selected)
         
         if self.presupposition_semantics:
-            mask = (mask[0][index]).unsqueeze(0)
+            mask = (mask[group][index])
         else:
-            mask = (mask + selected.unsqueeze(-1).unsqueeze(0))
-            mask = torch.logsumexp(mask,dim=-2)
-        #
-        #print(mask)
-        if torch.is_tensor(group):
-            return (mask * group.unsqueeze(1)).sum(dim=0), word2idx
+            mask = (mask[group] + selected.unsqueeze(1))
+            mask = torch.logsumexp(mask,dim=0)
+        
 
-        return mask[group],val, word2idx
+        return mask,val, word2idx
 
 
 
@@ -233,7 +272,7 @@ class ProgramExecutorContext(nn.Module):
                     cg = [cg]
                 mask = None
                 for c in cg:
-                    new_mask = self.taxnomy[k].similarity(self.features[k], c,k=k,mutual_exclusive=self.mutual_exclusive)
+                    new_mask = self.taxnomy[k].similarity(self.features[k], c,k=k,mutual_exclusive=self.mutual_exclusive,logit_semantics=self.logit_semantics)
                     mask = torch.min(mask, new_mask) if mask is not None else new_mask
                 if k == 2 and _apply_self_mask['relate']:
                     mask = do_apply_self_mask(mask)
@@ -245,7 +284,7 @@ class ProgramExecutorContext(nn.Module):
         if self._attribute_groups_masks is None:
             masks = list()
             for attribute in attribute_groups:
-                mask = self.taxnomy[1].cross_similarity(self.features[1], attribute)
+                mask = self.taxnomy[1].cross_similarity(self.features[1], attribute,logit_semantics=self.logit_semantics)
                 if _apply_self_mask['relate_ae']:
                     mask = do_apply_self_mask(mask)
                 masks.append(mask)
@@ -277,12 +316,7 @@ class DifferentiableReasoning(nn.Module):
         self.parameter_resolution = parameter_resolution
 
 
-        try:
-            self.presupposition_semantics = args.presupposition_semantics
-            self.mutual_exclusive = args.mutual_exclusive
-        except Exception as e:
-            self.presupposition_semantics = False
-            self.mutual_exclusive = True
+        self.args = args
 
         for i, nr_vars in enumerate(['attribute', 'relation']):
             if nr_vars not in self.used_concepts:
@@ -328,7 +362,7 @@ class DifferentiableReasoning(nn.Module):
 
 
 
-            ctx = ProgramExecutorContext(self.embedding_attribute, self.embedding_relation, features, self.presupposition_semantics, parameter_resolution=self.parameter_resolution, training=self.training, mutual_exclusive=self.mutual_exclusive)
+            ctx = ProgramExecutorContext(self.embedding_attribute, self.embedding_relation, features, parameter_resolution=self.parameter_resolution, training=self.training, args=self.args)
 
             for block_id, block in enumerate(prog):
                 op = block['op']
@@ -400,8 +434,8 @@ class DifferentiableReasoning(nn.Module):
 
         return programs, buffers, result
 
-    def inference_query(self, features, one_hot, query_type):
-        ctx = ProgramExecutorContext(self.embedding_attribute, self.embedding_relation, features, self.presupposition_semantics, parameter_resolution=self.parameter_resolution, training=self.training)
+    def inference_query(self, features, one_hot, query_type,args):
+        ctx = ProgramExecutorContext(self.embedding_attribute, self.embedding_relation, features, parameter_resolution=self.parameter_resolution, training=self.training, args=self.args)
         output, val, d = ctx.query(one_hot,0,query_type)
         m = int(torch.argmax(output))
         reverse_d = dict([(d[k],k) for k in d.keys()])
