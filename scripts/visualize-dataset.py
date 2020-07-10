@@ -83,10 +83,17 @@ parser.add_argument('--restrict-finetuning', type='bool', default=True)
 parser.add_argument('--resnet-type', default='resnet34', choices=['resnet34', 'resnet101','cmc_resnet','simclr_resnet','resnet34_pytorch'])
 parser.add_argument('--transformer-use-queries', type='bool', default=False)
 parser.add_argument('--filter-ops', type='bool', default=False)
+parser.add_argument('--filter-relate', type='bool', default=False)
 parser.add_argument('--object-dropout', type='bool', default=False)
 parser.add_argument('--object-dropout-rate', type=float, default=0.03)
 parser.add_argument('--normalize-objects',type='bool',default=True)
 parser.add_argument('--filter-additive',type='bool',default=False)
+parser.add_argument('--relate-rescale',type='bool',default=False)
+parser.add_argument('--relate-max',type='bool',default=False)
+parser.add_argument('--logit-semantics',type='bool',default=False)
+parser.add_argument('--bilinear-relation',type='bool',default=False)
+parser.add_argument('--coord-semantics',type='bool',default=False)
+
 
 
 args = parser.parse_args()

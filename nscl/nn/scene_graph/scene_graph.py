@@ -1272,7 +1272,7 @@ class TransformerCNN(nn.Module):
 
 
 
-        object_values_batched  = self.get_objects(object_features, batch_size, objects_length)
+        object_values_batched, spatial_representations_batched  = self.get_objects(object_features, batch_size, objects_length)
 
         if self.normalize_objects:
             object_representations_batched = self._norm(object_values_batched)
@@ -1281,13 +1281,14 @@ class TransformerCNN(nn.Module):
         #object_representations_batched = self._norm(self.object_features_layer(object_values_batched))
         object_pair_representations_batched = self._norm(self.objects_to_pair_representations(object_representations_batched))
         
-
+        spatial_pair_representations_batched = self.spatial_to_pair_representations(spatial_representations_batched)
 
         outputs = []
         for i in range(batch_size):
             num_objects = objects_length[i]
             object_representations = torch.squeeze(object_representations_batched[i,0:num_objects,:],dim=0)
             object_pair_representations = torch.squeeze(object_pair_representations_batched[i,0:num_objects,0:num_objects,:],dim=0)
+            spatial_pair_representations = torch.squeeze(spatial_pair_representations_batched[i,0:num_objects,0:num_objects,:],dim=0)
 
             if self.training:
                 if self.object_dropout:
@@ -1306,7 +1307,8 @@ class TransformerCNN(nn.Module):
             outputs.append([
                         None,
                         object_representations,
-                        object_pair_representations
+                        object_pair_representations,
+                        spatial_pair_representations
                     ])
 
 
@@ -1353,8 +1355,8 @@ class TransformerCNN(nn.Module):
 
     def get_objects(self,object_features,batch_size,objects_length):
         max_num_objects = max(objects_length)
-        #obj_coord_map = coord_map((object_features.size(2),object_features.size(3)),object_features.device).unsqueeze(0)
-        #obj_coord_map = obj_coord_map.repeat(batch_size,1,1,1)
+        obj_coord_map = coord_map((object_features.size(2),object_features.size(3)),object_features.device)
+
 
         #object_coord_cat = torch.cat((object_features,obj_coord_map),dim=1)
         foreground_map = self.foreground_detector(object_features)
@@ -1386,6 +1388,8 @@ class TransformerCNN(nn.Module):
         #attentions = self.transformer_layer(object_features,foreground_map, attentions, self.attention_net_4)
         #print(self.attention_net_4.conv1.weight.data)
 
+        spatial_representations = []
+
         for slot in range(max_num_objects):
             
             attention = F.sigmoid(attentions[slot])
@@ -1399,8 +1403,13 @@ class TransformerCNN(nn.Module):
             
             object_representations.append(objects)
 
+            spatial_rep = torch.einsum("bjk,cjk -> bc", attention, obj_coord_map)
+            spatial_representations.append(spatial_rep)
+
         object_representations = torch.stack(object_representations,dim=1)
-        return object_representations
+        spatial_representations = torch.stack(spatial_representations,dim=1)
+
+        return object_representations,spatial_representations
 
     def compute_attention(self,object_features,objects,objects_length,visualize_foreground=False):
         max_num_objects = max(objects_length)
@@ -1470,6 +1479,30 @@ class TransformerCNN(nn.Module):
         obj2_representations = obj2_representations.repeat(1,num_objects,1,1)
 
         object_pair_representations = obj1_representations+obj2_representations
+        #object_pair_representations = object_pair_representations
+
+        return object_pair_representations
+    
+
+
+    def spatial_to_pair_representations(self, spatial_representations_batched):
+        num_objects = spatial_representations_batched.size(1)
+
+        obj1_representations = spatial_representations_batched
+        obj2_representations = spatial_representations_batched
+
+
+        obj1_representations = obj1_representations.unsqueeze(-1)#now batch_size x num_objects x 2 x 1
+        obj2_representations = obj2_representations.unsqueeze(-1)
+
+
+        obj1_representations = obj1_representations.transpose(2,3)
+        obj2_representations = obj2_representations.transpose(2,3).transpose(1,2)
+
+        obj1_representations = obj1_representations.repeat(1,1,num_objects,1)  
+        obj2_representations = obj2_representations.repeat(1,num_objects,1,1)
+
+        object_pair_representations = torch.cat((obj1_representations,obj2_representations),dim=3)
         #object_pair_representations = object_pair_representations
 
         return object_pair_representations

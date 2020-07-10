@@ -35,7 +35,7 @@ class ConceptBlock(nn.Module):
     """
     Concept as an embedding in the corresponding attribute space.
     """
-    def __init__(self, embedding_dim, nr_attributes, attribute_agnostic=False):
+    def __init__(self, embedding_dim, nr_attributes, attribute_agnostic=False,bilinear=False,coord_semantics=False):
         """
         Args:
             embedding_dim (int): dimension of the embedding.
@@ -48,10 +48,15 @@ class ConceptBlock(nn.Module):
         self.nr_attributes = nr_attributes
         self.attribute_agnostic = attribute_agnostic
 
-        if self.attribute_agnostic:
-            self.embedding = nn.Parameter(torch.randn(embedding_dim))
+        if bilinear:
+            self.embedding = nn.Parameter(torch.randn(embedding_dim,embedding_dim))
+        elif coord_semantics:
+            self.embedding = nn.Parameter(torch.randn(4))
         else:
-            self.embedding = nn.Parameter(torch.randn(nr_attributes, embedding_dim))
+            if self.attribute_agnostic:
+                self.embedding = nn.Parameter(torch.randn(embedding_dim))
+            else:
+                self.embedding = nn.Parameter(torch.randn(nr_attributes, embedding_dim))
         self.belong = nn.Parameter(torch.randn(nr_attributes) * 0.1)
 
         self.known_belong = False
@@ -87,7 +92,7 @@ class ConceptBlock(nn.Module):
 
 
 class ConceptEmbedding(nn.Module):
-    def __init__(self, attribute_agnostic):
+    def __init__(self, attribute_agnostic,bilinear_relation,coord_semantics):
         super().__init__()
 
         self.attribute_agnostic = attribute_agnostic
@@ -98,6 +103,9 @@ class ConceptEmbedding(nn.Module):
 
         self.margin = nn.Parameter(torch.tensor(0.0, requires_grad=False))
         self.tau = nn.Parameter(torch.tensor(0.1, requires_grad=False))
+
+        self.bilinear_relation = bilinear_relation
+        self.coord_semantics = coord_semantics
 
     @property
     def nr_attributes(self):
@@ -119,7 +127,7 @@ class ConceptEmbedding(nn.Module):
         self.all_attributes.sort()
 
     def init_concept(self, identifier, input_dim, known_belong=None):
-        block = ConceptBlock(input_dim, self.nr_attributes, attribute_agnostic=self.attribute_agnostic)
+        block = ConceptBlock(input_dim, self.nr_attributes, attribute_agnostic=self.attribute_agnostic,bilinear=self.bilinear_relation,coord_semantics=self.coord_semantics)
         self.concept_embeddings.add_module('concept_' + identifier, block)
         if known_belong is not None:
             block.set_belong(self.attribute2id[known_belong])
@@ -158,29 +166,48 @@ class ConceptEmbedding(nn.Module):
     def similarity(self, query, identifier,k=1,mutual_exclusive=True, logit_semantics=False):
         #identifier is a concept
         #returns a list of log probabilities: prob that each object is the concept
+        if k==1 or self.bilinear_relation:
+            query = query[1]
+        elif self.coord_semantics:
+            query = query[3]
+        else:
+            query = query[2]
 
         attributes = self.all_attributes
         concept = self.get_concept(identifier)
         attribute_index = concept.belong.argmax(-1).item()
 
         if k==2: #two-place relation
-            num_objs = query.size(0)
-            query = query.reshape(-1,query.size(-1))
+            
 
             attr_identifier = attributes[attribute_index]
             mapping = self.get_attribute(attr_identifier)
             attr_id = self.attribute2id[attr_identifier]
             
-            query = mapping(query)
-            query = query / query.norm(2, dim=-1, keepdim=True)
-            concept_embedding = concept.normalized_embedding[attr_id]
-            logits = (torch.matmul(query,concept_embedding)/self.tau)
-            if logit_semantics:
-                log_prob = logits
-            else:
-                log_prob = nn.LogSigmoid()(logits)
 
-            log_prob = log_prob.reshape(num_objs,num_objs)
+
+            if self.bilinear_relation:
+                query = mapping(query)
+                logits = torch.einsum('ax,xy,by->ab',query,concept.embedding,query)
+                log_prob = nn.LogSigmoid()(logits)
+            else:
+                num_objs = query.size(0)
+                query = query.reshape(-1,query.size(-1))
+                if not self.coord_semantics:
+                    query = mapping(query)
+                    concept_embedding = concept.normalized_embedding[attr_id]
+                else:
+                    concept_embedding = concept.normalized_embedding
+
+                query = query / query.norm(2, dim=-1, keepdim=True)
+                logits = (torch.matmul(query,concept_embedding)/self.tau)
+                if logit_semantics:
+                    log_prob = logits
+                else:
+                    log_prob = nn.LogSigmoid()(logits)
+
+                log_prob = log_prob.reshape(num_objs,num_objs)
+
 
         
 

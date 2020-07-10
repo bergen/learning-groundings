@@ -272,7 +272,7 @@ class ProgramExecutorContext(nn.Module):
                     cg = [cg]
                 mask = None
                 for c in cg:
-                    new_mask = self.taxnomy[k].similarity(self.features[k], c,k=k,mutual_exclusive=self.mutual_exclusive,logit_semantics=self.logit_semantics)
+                    new_mask = self.taxnomy[k].similarity(self.features, c,k=k,mutual_exclusive=self.mutual_exclusive,logit_semantics=self.logit_semantics)
                     mask = torch.min(mask, new_mask) if mask is not None else new_mask
                 if k == 2 and _apply_self_mask['relate']:
                     mask = do_apply_self_mask(mask)
@@ -321,7 +321,13 @@ class DifferentiableReasoning(nn.Module):
         for i, nr_vars in enumerate(['attribute', 'relation']):
             if nr_vars not in self.used_concepts:
                 continue
-            setattr(self, 'embedding_' + nr_vars, concept_embedding.ConceptEmbedding(vse_attribute_agnostic))
+            if nr_vars=='relation':
+                bilinear = self.args.bilinear_relation
+                coord_semantics = self.args.coord_semantics
+            else:
+                bilinear = False
+                coord_semantics = False
+            setattr(self, 'embedding_' + nr_vars, concept_embedding.ConceptEmbedding(vse_attribute_agnostic,bilinear_relation=bilinear,coord_semantics=coord_semantics))
             tax = getattr(self, 'embedding_' + nr_vars)
             rec = self.used_concepts[nr_vars]
 
@@ -330,19 +336,7 @@ class DifferentiableReasoning(nn.Module):
             for (v, b) in rec['concepts']:
                 tax.init_concept(v, self.hidden_dims[1 + i], known_belong=b)
 
-        for i, nr_vars in enumerate(['attribute_ls', 'relation_ls']):
-            if nr_vars not in self.used_concepts:
-                continue
-            setattr(self, 'embedding_' + nr_vars.replace('_ls', ''), concept_embedding_ls.ConceptEmbeddingLS(
-                self.input_dims[1 + i], self.hidden_dims[1 + i], self.hidden_dims[1 + i]
-            ))
-            tax = getattr(self, 'embedding_' + nr_vars.replace('_ls', ''))
-            rec = self.used_concepts[nr_vars]
 
-            if rec['attributes'] is not None:
-                tax.init_attributes(rec['attributes'], self.used_concepts['embeddings'])
-            if rec['concepts'] is not None:
-                tax.init_concepts(rec['concepts'], self.used_concepts['embeddings'])
 
     def forward(self, batch_features, progs, fd=None):
 

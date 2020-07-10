@@ -125,6 +125,8 @@ parser.add_argument('--filter-additive',type='bool',default=False)
 parser.add_argument('--relate-rescale',type='bool',default=False)
 parser.add_argument('--relate-max',type='bool',default=False)
 parser.add_argument('--logit-semantics',type='bool',default=False)
+parser.add_argument('--bilinear-relation',type='bool',default=False)
+parser.add_argument('--coord-semantics',type='bool',default=False)
 
 
 args = parser.parse_args()
