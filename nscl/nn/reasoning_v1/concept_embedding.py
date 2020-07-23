@@ -196,10 +196,11 @@ class ConceptEmbedding(nn.Module):
                 if not self.coord_semantics:
                     query = mapping(query)
                     concept_embedding = concept.normalized_embedding[attr_id]
+                    query = query / query.norm(2, dim=-1, keepdim=True)
                 else:
                     concept_embedding = concept.normalized_embedding
 
-                query = query / query.norm(2, dim=-1, keepdim=True)
+                
                 logits = (torch.matmul(query,concept_embedding)/self.tau)
                 if logit_semantics:
                     log_prob = logits
@@ -275,18 +276,35 @@ class ConceptEmbedding(nn.Module):
                 log_probs = nn.LogSigmoid()(logits)
             return log_probs
         
+    def kl_divergence(self,p1,p2):
+        raw_p1 = torch.exp(p1)
+        kl = raw_p1 * (p1-p2)
+        kl = kl.sum(dim=-1)
 
+        return kl
 
     def cross_similarity(self, query, identifier,logit_semantics=False):
         #identifier is an attribute, e.g. "color"
         #query is a tensor of object representations. a single object representation is a single vector
-        mapping = self.get_attribute(identifier)
-        query = mapping(query)
-        query = query / query.norm(2, dim=-1, keepdim=True)
-        q1, q2 = jactorch.meshgrid(query, dim=-2)
-        #q1, q2 are used as all pairs of objects
+        if True:
+            probs,word2idx = self.query_attribute(query,identifier)
+            probs1,probs2 = jactorch.meshgrid(probs,dim=-2)
 
-        return self.similarity2(q1, q2, identifier, _normalized=True,logit_semantics=logit_semantics)
+            kl = self.kl_divergence(probs1,probs2)
+
+            return -1*kl
+
+
+
+
+        else:
+            mapping = self.get_attribute(identifier)
+            query = mapping(query)
+            query = query / query.norm(2, dim=-1, keepdim=True)
+            q1, q2 = jactorch.meshgrid(query, dim=-2)
+            #q1, q2 are used as all pairs of objects
+
+            return self.similarity2(q1, q2, identifier, _normalized=True,logit_semantics=logit_semantics)
 
     def map_attribute(self, query, identifier):
         mapping = self.get_attribute(identifier)

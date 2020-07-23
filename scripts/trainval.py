@@ -43,7 +43,7 @@ parser.add_argument('--configs', default='', type='kv', metavar='CFGS')
 parser.add_argument('--expr', default=None, metavar='DIR', help='experiment name')
 parser.add_argument('--training-target', required=True, choices=['derender', 'parser', 'all'])
 parser.add_argument('--training-visual-modules', default='all', choices=['none', 'object', 'relation', 'all'])
-parser.add_argument('--curriculum', default='all', choices=['off', 'scene', 'program', 'all','restricted','accelerated','intermediate','simple_syntax','extended'])
+parser.add_argument('--curriculum', default='all', choices=['off', 'scene', 'program', 'all','restricted','accelerated','intermediate','simple_syntax','extended','restrict_syntax','no_complex_syntax'])
 parser.add_argument('--question-transform', default='off', choices=['off', 'basic', 'parserv1-groundtruth', 'parserv1-candidates', 'parserv1-candidates-executed'])
 parser.add_argument('--concept-quantization-json', default=None, metavar='FILE')
 
@@ -118,6 +118,8 @@ parser.add_argument('--resnet-type', default='resnet34', choices=['resnet34', 'r
 parser.add_argument('--transformer-use-queries', type='bool', default=False)
 parser.add_argument('--filter-ops', type='bool', default=False)
 parser.add_argument('--filter-relate', type='bool', default=False)
+parser.add_argument('--filter-disjunction', type='bool', default=False)
+parser.add_argument('--filter-relate-epoch', type=int, default=0)
 parser.add_argument('--object-dropout', type='bool', default=False)
 parser.add_argument('--object-dropout-rate', type=float, default=0.03)
 parser.add_argument('--normalize-objects',type='bool',default=True)
@@ -284,8 +286,9 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
     if args.resume:
         extra = trainer.load_checkpoint(args.resume)
         if extra:
-            args.start_epoch = extra['epoch']
-            logger.critical('Resume from epoch {}.'.format(args.start_epoch))
+            pass
+            #args.start_epoch = extra['epoch']
+            #logger.critical('Resume from epoch {}.'.format(args.start_epoch))
     elif args.load:
         if trainer.load_weights(args.load):
             logger.critical('Loaded weights from pretrained model: "{}".'.format(args.load))
@@ -322,10 +325,12 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
     # assert args.curriculum == 'off', 'Unimplemented feature: curriculum mode {}.'.format(args.curriculum)
     remove_ops = None
     if args.filter_ops:
+        remove_ops = ['relate_attribute_equal','query_attribute_equal']
         if args.filter_relate:
-            remove_ops = ['relate_attribute_equal','query_attribute_equal','relate']
-        else:
-            ['relate_attribute_equal','query_attribute_equal']
+            remove_ops = remove_ops + ['relate']
+        if args.filter_disjunction:
+            remove_ops = remove_ops + ['union']
+            
 
     if args.curriculum=='restricted':
         curriculum_strategy = [
@@ -348,6 +353,16 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
             (30, 8, 20),
             (35, 9, 22),
             (40, 10, 25),
+            (1e9, None, None)
+        ]
+    elif args.curriculum=='restrict_syntax':
+        curriculum_strategy = [
+            (0, 10, 8),
+            (1e9, None, None)
+        ]
+    elif args.curriculum=='no_complex_syntax':
+        curriculum_strategy = [
+            (0, 10, 12),
             (1e9, None, None)
         ]
     elif args.curriculum=='intermediate':
@@ -447,6 +462,8 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
                     this_train_dataset = this_train_dataset.filter_program_size_raw(max_program_size)
                     if remove_ops is not None:
                         this_train_dataset = this_train_dataset.filter_question_type(disallowed=remove_ops)
+                        if epoch < args.filter_relate_epoch:
+                            this_train_dataset = this_train_dataset.filter_question_type(disallowed=['relate'])
                     logger.critical('Building the data loader. Curriculum = {}/{}, length = {}.'.format(*s[1:], len(this_train_dataset)))
                     break
 

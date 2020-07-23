@@ -94,13 +94,15 @@ parser.add_argument('--attention-type', default='cnn', choices=['cnn', 'naive-rn
                                                                 'scene-graph-object-supervised',
                                                                 'structured-subtractive-rnn-batched',
                                                                 'transformer',
-                                                                'monet-lite'])
+                                                                'monet-lite',
+                                                                'transformer-cnn'])
 
 parser.add_argument('--attention-loss', type='bool', default=False)
 parser.add_argument('--anneal-rnn', type='bool', default=False)
 parser.add_argument('--adversarial-loss', type='bool', default=False)
 parser.add_argument('--adversarial-lr', type=float, default=0.0002, metavar='N', help='initial learning rate')
 parser.add_argument('--presupposition-semantics', type='bool', default=False)
+parser.add_argument('--mutual-exclusive', type='bool', default=True)
 parser.add_argument('--subtractive-rnn', type='bool', default=False)
 parser.add_argument('--subtract-from-scene', type='bool', default=True)
 parser.add_argument('--rnn-type', default='lstm', choices=['lstm','gru'])
@@ -108,10 +110,22 @@ parser.add_argument('--full-recurrence', type='bool', default=True)
 parser.add_argument('--lr-cliff-epoch', type=int, default=50) #this is the epoch at which the lr will fall by factor of 0.1
 parser.add_argument('--optimizer', default='adamw', choices=['adamw', 'rmsprop'])
 parser.add_argument('--fine-tune-resnet-epoch', type=int, default=100)
+parser.add_argument('--fine-tune-semantics-epoch', type=int, default=100)
 parser.add_argument('--restrict-finetuning', type='bool', default=True)
-parser.add_argument('--resnet-type', default='resnet34', choices=['resnet34', 'resnet101','cmc_resnet','simclr_resnet'])
+parser.add_argument('--resnet-type', default='resnet34', choices=['resnet34', 'resnet101','cmc_resnet','simclr_resnet','resnet34_pytorch'])
 parser.add_argument('--transformer-use-queries', type='bool', default=False)
 parser.add_argument('--filter-ops', type='bool', default=False)
+parser.add_argument('--filter-relate', type='bool', default=False)
+parser.add_argument('--filter-relate-epoch', type=int, default=0)
+parser.add_argument('--object-dropout', type='bool', default=False)
+parser.add_argument('--object-dropout-rate', type=float, default=0.03)
+parser.add_argument('--normalize-objects',type='bool',default=True)
+parser.add_argument('--filter-additive',type='bool',default=False)
+parser.add_argument('--relate-rescale',type='bool',default=False)
+parser.add_argument('--relate-max',type='bool',default=False)
+parser.add_argument('--logit-semantics',type='bool',default=False)
+parser.add_argument('--bilinear-relation',type='bool',default=False)
+parser.add_argument('--coord-semantics',type='bool',default=False)
 
 args = parser.parse_args()
 
@@ -171,10 +185,10 @@ def get_object_graph(model,features,one_hot):
     q_material = ['material']
     q_shape = ['shape']
 
-    a_color = model.reasoning.inference_query(features,one_hot,q_color)
-    a_size = model.reasoning.inference_query(features,one_hot,q_size)
-    a_material = model.reasoning.inference_query(features,one_hot,q_material)
-    a_shape = model.reasoning.inference_query(features,one_hot,q_shape)
+    a_color = model.reasoning.inference_query(features,one_hot,q_color,args)
+    a_size = model.reasoning.inference_query(features,one_hot,q_size,args)
+    a_material = model.reasoning.inference_query(features,one_hot,q_material,args)
+    a_shape = model.reasoning.inference_query(features,one_hot,q_shape,args)
 
     d['color'] = a_color
     d['size'] = a_size
@@ -208,8 +222,8 @@ def inferred_graph(model, feed_dict):
     scene = []
 
     for j in range(num_objects):
-        one_hot = torch.zeros(num_objects, dtype=torch.float, device=features[1].device)
-        one_hot[j] = 1
+        one_hot = -100*torch.ones(num_objects, dtype=torch.float, device=features[1].device)
+        one_hot[j] = 0
         object_graph = get_object_graph(model,features,one_hot)
         scene.append(object_graph)
 
@@ -258,7 +272,7 @@ def get_data(batch_size=1, dataset_size=500):
     build_dataset = get_dataset_builder(args.dataset)
 
     #use validation set
-    dataset = build_dataset(args, configs, args.extra_data_image_root, args.extra_data_scenes_json, args.extra_data_questions_json)
+    dataset = build_dataset(args, configs, args.data_image_root, args.data_scenes_json, args.data_questions_json)
 
     if dataset_size is not None:
         dataset = dataset.trim_length(dataset_size)
@@ -277,6 +291,7 @@ def graph_accuracy(model, feed_dict):
     num_objects = len(ground_truth)
 
     accuracies = []
+    entropies = []
 
     for i in range(num_objects):
         gt_obj = ground_truth[i]
@@ -296,7 +311,7 @@ def graph_accuracy(model, feed_dict):
 def main():
     accuracies = []
 
-    validation_iter, _ = get_data(batch_size=1,dataset_size=None)
+    validation_iter, _ = get_data(batch_size=1,dataset_size=2000)
     model = make_model()
     for i in range(len(validation_iter)):
         feed_dict = next(validation_iter)

@@ -515,13 +515,13 @@ def visualize_scene_graph():
 
         for j in range(num_objects):
             #get the graph for the current object
-            one_hot = torch.zeros(num_objects, dtype=torch.float, device=features[1].device)
-            one_hot[j] = 1
+            one_hot = -100*torch.ones(num_objects, dtype=torch.float, device=features[1].device)
+            one_hot[j] = 0
             object_graph = get_object_graph(model,features,one_hot)
 
 
             #get the attentions
-            print(attention[0,j,:])
+            #print(attention[0,j,:])
             object_attention = torch.unsqueeze(torch.unsqueeze((attention[0,j,:]/(torch.max(attention[0,j,:]))).cpu(),dim=0),dim=0)
 
 

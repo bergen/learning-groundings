@@ -81,7 +81,7 @@ class ProgramExecutorContext(nn.Module):
         self._attribute_query_ls_mc_masks = None
 
         self.presupposition_semantics = args.presupposition_semantics   
-        self.mutual_exclusive = args.mutual_exclusive
+        self.mutual_exclusive = args.mutual_exclusive 
         self.filter_additive = args.filter_additive
         self.relate_rescale = args.relate_rescale
         self.logit_semantics = args.logit_semantics
@@ -247,8 +247,7 @@ class ProgramExecutorContext(nn.Module):
         else:
             mask = (mask[group] + selected.unsqueeze(1))
             mask = torch.logsumexp(mask,dim=0)
-        
-
+            
         return mask,val, word2idx
 
 
@@ -434,3 +433,4 @@ class DifferentiableReasoning(nn.Module):
         m = int(torch.argmax(output))
         reverse_d = dict([(d[k],k) for k in d.keys()])
         return reverse_d[m]
+
