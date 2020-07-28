@@ -361,7 +361,10 @@ class DifferentiableReasoning(nn.Module):
                 op = block['op']
 
                 if op == 'scene':
-                    buffer.append(torch.zeros(features[1].size(0), dtype=torch.float, device=features[1].device))
+                    if self.args.infer_num_objects:
+                        buffer.append(torch.log(features[3]))
+                    else:
+                        buffer.append(torch.zeros(features[1].size(0), dtype=torch.float, device=features[1].device))
                     continue
 
                 inputs = []

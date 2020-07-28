@@ -64,7 +64,8 @@ parser.add_argument('--attention-type', default='cnn', choices=['cnn', 'naive-rn
                                                                 'structured-subtractive-rnn-batched',
                                                                 'transformer',
                                                                 'monet-lite',
-                                                                'transformer-cnn'])
+                                                                'transformer-cnn',
+                                                                'transformer-cnn-object-inference'])
 parser.add_argument('--attention-loss', type='bool', default=False)
 parser.add_argument('--anneal-rnn', type='bool', default=False)
 parser.add_argument('--adversarial-loss', type='bool', default=False)
@@ -84,6 +85,8 @@ parser.add_argument('--resnet-type', default='resnet34', choices=['resnet34', 'r
 parser.add_argument('--transformer-use-queries', type='bool', default=False)
 parser.add_argument('--filter-ops', type='bool', default=False)
 parser.add_argument('--filter-relate', type='bool', default=False)
+parser.add_argument('--filter-disjunction', type='bool', default=False)
+parser.add_argument('--filter-relate-epoch', type=int, default=0)
 parser.add_argument('--object-dropout', type='bool', default=False)
 parser.add_argument('--object-dropout-rate', type=float, default=0.03)
 parser.add_argument('--normalize-objects',type='bool',default=True)
@@ -93,6 +96,8 @@ parser.add_argument('--relate-max',type='bool',default=False)
 parser.add_argument('--logit-semantics',type='bool',default=False)
 parser.add_argument('--bilinear-relation',type='bool',default=False)
 parser.add_argument('--coord-semantics',type='bool',default=False)
+parser.add_argument('--infer-num-objects',type='bool',default=False)
+
 
 
 

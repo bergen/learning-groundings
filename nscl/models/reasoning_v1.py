@@ -98,14 +98,11 @@ class ReasoningV1Model(nn.Module):
         import nscl.nn.scene_graph.monet as monet
         # number of channels = 256; downsample rate = 16.
         attention_dispatch = {
-                            'structured-rnn-batched':sng.StructuredRNNSceneGraphBatched,
-                            'structured-subtractive-rnn-batched':sng.StructuredSubtractiveRNNSceneGraphBatched,
-                            'max-rnn-batched':sng.MaxRNNSceneGraphBatched,
                             'monet':monet.MONet,
                             'scene-graph-object-supervised': sng.SceneGraphObjectSupervision,
-                            'transformer': sng.TransformerSceneGraph,
                             'monet-lite': sng.MonetLiteSceneGraph,
-                            'transformer-cnn': sng.TransformerCNN}
+                            'transformer-cnn': sng.TransformerCNN,
+                            'transformer-cnn-object-inference': sng.TransformerCNNObjectInference}
 
         try:
             if args.attention_type=='monet':

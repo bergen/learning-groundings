@@ -97,7 +97,8 @@ parser.add_argument('--attention-type', default='cnn', choices=['cnn', 'naive-rn
                                                                 'structured-subtractive-rnn-batched',
                                                                 'transformer',
                                                                 'monet-lite',
-                                                                'transformer-cnn'])
+                                                                'transformer-cnn',
+                                                                'transformer-cnn-object-inference'])
 
 parser.add_argument('--attention-loss', type='bool', default=False)
 parser.add_argument('--anneal-rnn', type='bool', default=False)
@@ -129,6 +130,7 @@ parser.add_argument('--relate-max',type='bool',default=False)
 parser.add_argument('--logit-semantics',type='bool',default=False)
 parser.add_argument('--bilinear-relation',type='bool',default=False)
 parser.add_argument('--coord-semantics',type='bool',default=False)
+parser.add_argument('--infer-num-objects',type='bool',default=False)
 
 
 args = parser.parse_args()
@@ -381,7 +383,7 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
     elif args.curriculum=='extended':
         curriculum_strategy = [
             (0, 3, 4),
-            (20, 3, 6),
+            (10, 3, 6),
             (30, 4, 8),
             (40, 5, 12),
             (50, 6, 12),
