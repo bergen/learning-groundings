@@ -1156,6 +1156,7 @@ class TransformerCNNObjectInference(TransformerCNN):
     def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True, args=None,img_input_dim=(16,24)):
         super().__init__(feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True, args=args,img_input_dim=(16,24))
 
+        self.object_detector = nn.Sequential(nn.Linear(output_dims[1], 1),nn.Sigmoid())
 
     def forward(self, input, objects, objects_length):
         object_features = input
@@ -1368,8 +1369,12 @@ class TransformerCNNObjectInference(TransformerCNN):
             
             object_representations.append(objects)
 
-            normalized_attention = attention / torch.sum(attention,dim=(1,2)).view(batch_size,1,1)
-            weight = torch.einsum("bjk,bjk -> b",normalized_attention,foreground_attention)
+            if True:
+                weight = self.object_detector(objects)
+                weight = weight.squeeze(1)
+            else:
+                normalized_attention = attention / torch.sum(attention,dim=(1,2)).view(batch_size,1,1)
+                weight = torch.einsum("bjk,bjk -> b",normalized_attention,foreground_attention)
             object_weights.append(weight)
 
             
@@ -1430,6 +1435,7 @@ class TransformerCNNObjectInference(TransformerCNN):
             weight = torch.einsum("bjk,bjk -> b",normalized_attention,foreground_attention)
             object_weights.append(float(weight))
 
+        print(object_weights)
         
         #object_representations = [o for o,_ in sorted(zip(object_representations,object_weights),key=lambda y: y[1])]
         #attentions_list = [a for a,_ in sorted(zip(attentions_list,object_weights),key=lambda y: y[1])]

@@ -486,7 +486,7 @@ def test_scene_graph(model,feed_dict):
 def visualize_scene_graph():
     data = []
 
-    validation_iter, _ = get_data(batch_size=1,dataset_size=100)
+    validation_iter, _ = get_data(batch_size=1,dataset_size=200)
     model = make_model()
     for i in range(len(validation_iter)):
         feed_dict = next(validation_iter)
