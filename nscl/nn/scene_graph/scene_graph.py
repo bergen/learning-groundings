@@ -32,465 +32,6 @@ DEBUG = bool(int(os.getenv('DEBUG_SCENE_GRAPH', 0)))
 __all__ = ['SceneGraph','NaiveRNNSceneGraph','AttentionCNNSceneGraph']
 
 
-class SceneGraph(nn.Module):
-    def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True,args=None,img_input_dim=(16,24)):
-        super().__init__()
-        self.pool_size = 7
-
-        if args.resnet_type=='cmc_resnet':
-            self.feature_dim = feature_dim
-            self.img_channels = 8192
-            self.collapse_image = True
-        else:
-            self.feature_dim = feature_dim
-            self.collapse_image = False
-        self.output_dims = output_dims
-        self.downsample_rate = downsample_rate
-
-        self.object_supervision = object_supervision
-        self.concatenative_pair_representation = concatenative_pair_representation
-
-
-        #self.object_coord_fuse = nn.Sequential(nn.Conv2d(feature_dim+2,feature_dim,kernel_size=1), nn.BatchNorm2d(feature_dim), nn.ReLU())
-        if self.collapse_image:
-            self.object_coord_fuse = nn.Sequential(nn.Conv2d(self.img_channels+2,self.feature_dim,kernel_size=1), nn.ReLU())
-        else:
-            self.object_coord_fuse = nn.Sequential(nn.Conv2d(feature_dim+2,feature_dim,kernel_size=1), nn.ReLU())
-        
-        self.object_features_layer = nn.Sequential(nn.Linear(feature_dim,output_dims[1]),nn.ReLU())
-        self.obj1_linear = nn.Linear(output_dims[1],output_dims[1])
-        self.obj2_linear = nn.Linear(output_dims[1],output_dims[1])
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight.data)
-                m.bias.data.zero_()
-            elif isinstance(m, nn.Linear):
-                nn.init.kaiming_normal_(m.weight.data)
-                m.bias.data.zero_()
-
-
-    def forward(self, input, objects, objects_length):
-        object_features = input
-        
-
-
-       
-        outputs = list()
-        #object_features has shape batch_size x 256 x 16 x 24
-        obj_coord_map = coord_map((object_features.size(2),object_features.size(3)),object_features.device)
-        
-        for i in range(input.size(0)):
-            single_scene_object_features =  torch.squeeze(object_features[i,:],dim=0) #dim=256 x 16 x 24
-            scene_object_coords = torch.unsqueeze(torch.cat((single_scene_object_features,obj_coord_map),dim=0),dim=0)
-
-            fused_object_coords = torch.squeeze(self.object_coord_fuse(scene_object_coords),dim=0) #dim=256 x Z x Y
-
-
-            num_objects = objects_length[i]
-
-            queries = self.get_queries(fused_object_coords,num_objects)
-
-
-
-            attention_map = torch.einsum("ij,jkl -> ikl", queries,fused_object_coords) #dim=num_objects x Z x Y
-            attention_map = nn.Softmax(1)(attention_map.view(num_objects,-1)).view_as(attention_map)
-            object_values = torch.einsum("ijk,ljk -> il", attention_map, fused_object_coords) #dim=num_objects x 256
-
-            object_representations = self._norm(self.object_features_layer(object_values))
-
-            object_pair_representations = self.objects_to_pair_representations(object_representations)
-
-
-            outputs.append([
-                        None,
-                        object_representations,
-                        object_pair_representations
-                    ])
-
-        return outputs
-
-    def objects_to_pair_representations(self, object_representations):
-        num_objects = object_representations.size(0)
-
-        obj1_representations = self.obj1_linear(object_representations)
-        obj2_representations = self.obj2_linear(object_representations)
-
-        obj1_representations.unsqueeze_(-1)
-        obj2_representations.unsqueeze_(-1)
-
-        obj1_representations = obj1_representations.transpose(1,2)
-        obj2_representations = obj2_representations.transpose(1,2).transpose(0,1)
-
-        obj1_representations = obj1_representations.repeat(1,num_objects,1)
-        obj2_representations = obj2_representations.repeat(num_objects,1,1)
-
-        object_pair_representations = obj1_representations+obj2_representations
-
-        return object_pair_representations
-
-    def get_queries(self,fused_object_coords,num_objects):
-        pass
-
-    def _norm(self, x):
-        return x / x.norm(2, dim=-1, keepdim=True)
-
-
-    def compute_attention(self,input,objects,objects_length):
-        object_features = torch.squeeze(input,dim=0)
-        obj_coord_map = coord_map((object_features.size(1),object_features.size(2)),self.query.device)
-
-        scene_object_coords = torch.unsqueeze(torch.cat((object_features,obj_coord_map),dim=0),dim=0)
-
-        fused_object_coords = torch.squeeze(self.object_coord_fuse(scene_object_coords),dim=0) #dim=256 x Z x Y
-
-
-        num_objects = objects_length[0]
-        relevant_queries = self.query[0:num_objects,:] #num_objects x feature_dim
-
-        attention_map = self.temperature*torch.einsum("ij,jkl -> ikl", relevant_queries,fused_object_coords) #dim=num_objects x Z x Y
-        attention_map = nn.Softmax(1)(attention_map.view(num_objects,-1)).view_as(attention_map)
-
-        return attention_map
-
-
-class NaiveRNNSceneGraph(SceneGraph):
-    def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True,args=None,img_input_dim=(16,24)):
-        super().__init__(feature_dim, output_dims, downsample_rate,args=args,img_input_dim=(16,24))
-
-        self.attention_rnn = nn.LSTM(feature_dim*img_input_dim[0]*img_input_dim[1], feature_dim,batch_first=True)
-
-    
-
-    def get_queries(self,fused_object_coords,num_objects):
-        rnn_input = fused_object_coords.view(-1,self.feature_dim*16*24).expand(num_objects,-1)
-        rnn_input = torch.unsqueeze(rnn_input,dim=0)
-        queries,_ = self.attention_rnn(rnn_input)
-        queries = torch.squeeze(queries,dim=0)
-        return queries
-
-
-
-class NaiveRNNSceneGraphBatchedBase(NaiveRNNSceneGraph):
-    def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True,args=None,img_input_dim=(16,24)):
-        super().__init__(feature_dim, output_dims, downsample_rate,args=args,img_input_dim=(16,24))
-
-
-    def objects_to_pair_representations(self, object_representations_batched):
-        num_objects = object_representations_batched.size(1)
-
-        obj1_representations = self.obj1_linear(object_representations_batched)
-        obj2_representations = self.obj2_linear(object_representations_batched)
-
-        obj1_representations.unsqueeze_(-1)#now batch_size x num_objects x feature_dim x 1
-        obj2_representations.unsqueeze_(-1)
-
-        obj1_representations = obj1_representations.transpose(2,3)
-        obj2_representations = obj2_representations.transpose(2,3).transpose(1,2)
-
-        obj1_representations = obj1_representations.repeat(1,1,num_objects,1)  
-        obj2_representations = obj2_representations.repeat(1,num_objects,1,1)
-
-        object_pair_representations = obj1_representations+obj2_representations
-        object_pair_representations = object_pair_representations
-
-        return object_pair_representations
-
-    def get_queries(self,fused_object_coords,batch_size,max_num_objects):
-        rnn_input = fused_object_coords.reshape(batch_size,-1,self.feature_dim*16*24).expand(-1,max_num_objects,-1)
-        queries,_ = self.attention_rnn(rnn_input)
-        return queries
-
-class NaiveRNNSceneGraphBatched(NaiveRNNSceneGraphBatchedBase):
-    def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True,args=None,img_input_dim=(16,24)):
-        super().__init__(feature_dim, output_dims, downsample_rate,args=args,img_input_dim=(16,24))
-
-    def forward(self, input, objects, objects_length):
-        object_features = input
-        
-
-        batch_size = input.size(0)
-        max_num_objects = max(objects_length)
-       
-        outputs = list()
-        #object_features has shape batch_size x 256 x 16 x 24
-        obj_coord_map = torch.unsqueeze(coord_map((object_features.size(2),object_features.size(3)),object_features.device),dim=0)
-
-        obj_coord_map_batched = obj_coord_map.repeat(batch_size,1,1,1)
-
-        scene_object_coords_batched = torch.cat((object_features,obj_coord_map_batched), dim=1)
-
-        fused_object_coords_batched = self.object_coord_fuse(scene_object_coords_batched)
-
-        queries = self.get_queries(fused_object_coords_batched, batch_size, max_num_objects)
-
-        attention_map_batched = torch.einsum("bij,bjkl -> bikl", queries,fused_object_coords_batched)
-        attention_map_batched = nn.Softmax(2)(attention_map_batched.reshape(batch_size,max_num_objects,-1)).view_as(attention_map_batched)
-        object_values_batched = torch.einsum("bijk,bljk -> bil", attention_map_batched, fused_object_coords_batched) 
-        object_representations_batched = self._norm(self.object_features_layer(object_values_batched))
-
-        object_pair_representations_batched = self.objects_to_pair_representations(object_representations_batched)
-
-
-        outputs = []
-        for i in range(batch_size):
-            num_objects = objects_length[i]
-            object_representations = torch.squeeze(object_representations_batched[i,0:num_objects,:],dim=0)
-            object_pair_representations = torch.squeeze(object_pair_representations_batched[i,0:num_objects,0:num_objects,:],dim=0).contiguous()
-            
-            outputs.append([
-                        None,
-                        object_representations,
-                        object_pair_representations
-                    ])
-
-
-        return outputs
-
-    def compute_attention(self,input, objects, objects_length):
-        object_features = input
-        
-
-        batch_size = input.size(0)
-        max_num_objects = max(objects_length)
-       
-        outputs = list()
-        #object_features has shape batch_size x 256 x 16 x 24
-        obj_coord_map = torch.unsqueeze(coord_map((object_features.size(2),object_features.size(3)),object_features.device),dim=0)
-
-        obj_coord_map_batched = obj_coord_map.repeat(batch_size,1,1,1)
-
-        scene_object_coords_batched = torch.cat((object_features,obj_coord_map_batched), dim=1)
-
-        fused_object_coords_batched = self.object_coord_fuse(scene_object_coords_batched)
-
-        queries = self.get_queries(fused_object_coords_batched, batch_size, max_num_objects)
-
-        attention_map_batched = torch.einsum("bij,bjkl -> bikl", queries,fused_object_coords_batched)
-        attention_map_batched = nn.Softmax(2)(attention_map_batched.reshape(batch_size,max_num_objects,-1)).view_as(attention_map_batched)
-
-        return attention_map_batched
-
-
-class MaxRNNSceneGraphBatched(NaiveRNNSceneGraphBatched):
-    def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True, args=None,img_input_dim=(16,24)):
-        super().__init__(feature_dim, output_dims, downsample_rate,args=args,img_input_dim=img_input_dim)
-
-        try:
-            self.rnn_type =  args.rnn_type
-        except Exception as e:
-            self.rnn_type = 'lstm'
-
-        if self.rnn_type=='lstm':
-            self.attention_rnn = nn.LSTM(feature_dim, feature_dim,batch_first=True)
-        elif self.rnn_type=='gru':
-            self.attention_rnn = nn.GRU(feature_dim, feature_dim,batch_first=True)
-
-        self.maxpool = nn.MaxPool2d(img_input_dim)
-
-        try:
-            self.subtractive_rnn = args.subtractive_rnn
-        except Exception as e:
-            self.subtractive_rnn = False
-
-        try:
-            self.full_recurrence = args.full_recurrence
-        except Exception as e:
-            self.full_recurrence = True
-
-        try:
-            self.subtract_from_scene = args.subtract_from_scene
-        except Exception as e:
-            self.subtract_from_scene = True
-            
-    def forward(self, input, objects, objects_length):
-        object_features = input
-        
-
-        batch_size = input.size(0)
-        max_num_objects = max(objects_length)
-       
-        outputs = list()
-        #object_features has shape batch_size x 256 x 16 x 24
-        obj_coord_map = torch.unsqueeze(coord_map((object_features.size(2),object_features.size(3)),object_features.device),dim=0)
-
-        obj_coord_map_batched = obj_coord_map.repeat(batch_size,1,1,1)
-
-        scene_object_coords_batched = torch.cat((object_features,obj_coord_map_batched), dim=1)
-
-        fused_object_coords_batched = self.object_coord_fuse(scene_object_coords_batched)
-
-        queries = self.get_queries(fused_object_coords_batched, batch_size, max_num_objects)
-
-        if not self.subtractive_rnn:
-            attention_map_batched = torch.einsum("bij,bjkl -> bikl", queries,fused_object_coords_batched)
-            attention_map_batched = nn.Softmax(2)(attention_map_batched.reshape(batch_size,max_num_objects,-1)).view_as(attention_map_batched)
-            object_values_batched = torch.einsum("bijk,bljk -> bil", attention_map_batched, fused_object_coords_batched) 
-            
-
-        else:
-            object_representations = []
-            remaining_scene = fused_object_coords_batched
-
-            
-            for query in queries:
-
-                if not self.full_recurrence:
-                    attention_map_batched = torch.einsum("bj,bjkl -> bkl", query,fused_object_coords_batched)
-                else:
-                    attention_map_batched = torch.einsum("bj,bjkl -> bkl", query,remaining_scene)
-                attention_map_batched = nn.Softmax(1)(attention_map_batched.reshape(batch_size,-1)).view_as(attention_map_batched)
-
-                if self.subtract_from_scene:
-                    object_values = torch.einsum("bjk,bljk -> bl", attention_map_batched, remaining_scene) 
-                else:
-                    object_values = torch.einsum("bjk,bljk -> bl", attention_map_batched, fused_object_coords_batched) 
-                object_representations.append(object_values)
-
-                weighted_scene = torch.einsum("bjk,bljk -> bljk", attention_map_batched, remaining_scene) 
-
-                remaining_scene = remaining_scene - weighted_scene
-
-            object_values_batched = torch.stack(object_representations,dim=1)
-
-        object_representations_batched = self._norm(self.object_features_layer(object_values_batched))
-        object_pair_representations_batched = self.objects_to_pair_representations(object_representations_batched)
-
-
-        outputs = []
-        for i in range(batch_size):
-            num_objects = objects_length[i]
-            object_representations = torch.squeeze(object_representations_batched[i,0:num_objects,:],dim=0)
-            object_pair_representations = torch.squeeze(object_pair_representations_batched[i,0:num_objects,0:num_objects,:],dim=0).contiguous()
-            
-            outputs.append([
-                        None,
-                        object_representations,
-                        object_pair_representations
-                    ])
-
-
-        return outputs
-
-    def get_queries(self,fused_object_coords,batch_size,max_num_objects):
-
-        if not self.subtractive_rnn:
-            rnn_input = self.maxpool(fused_object_coords).squeeze(-1).squeeze(-1)
-            rnn_input = rnn_input.unsqueeze(1).expand(-1,max_num_objects,-1)
-            queries,_ = self.attention_rnn(rnn_input)
-            return queries
-
-        else:
-            device = fused_object_coords.device
-
-            
-            if self.rnn_type == 'lstm':
-                h = torch.zeros(1,batch_size,self.feature_dim).to(device), torch.zeros(1,batch_size,self.feature_dim).to(device)
-            else:
-                h = torch.zeros(1,batch_size,self.feature_dim).to(device)
-
-            query_list = []
-
-            remaining_scene = fused_object_coords
-
-            for i in range(max_num_objects):
-
-                scene_representation = self.maxpool(remaining_scene).squeeze(-1).squeeze(-1).unsqueeze(1)
-                
-                output, h = self.attention_rnn(scene_representation,h)
-
-                query = output.view(batch_size,-1)
-
-                if not self.full_recurrence:
-                    attention_map_batched = torch.einsum("bj,bjkl -> bkl", query,fused_object_coords)
-                else:
-                    attention_map_batched = torch.einsum("bj,bjkl -> bkl", query,remaining_scene)
-
-                attention_map_batched = nn.Softmax(1)(attention_map_batched.reshape(batch_size,-1)).view_as(attention_map_batched)
-
-                weighted_scene = torch.einsum("bjk,bljk -> bljk", attention_map_batched, remaining_scene) 
-
-                remaining_scene = remaining_scene - weighted_scene
-
-
-                query_list.append(query)
-
-
-
-            #queries = torch.stack(query_list,dim=1)
-
-            return query_list
-
-
-    def test_batching(self,input, objects, objects_length):
-
-        def get_queries(fused_object_coords,num_objects):
-            rnn_input = self.maxpool(fused_object_coords.unsqueeze(0)).squeeze(-1).squeeze(-1)
-            rnn_input = rnn_input.unsqueeze(1).expand(-1,num_objects,-1)
-            queries,_ = self.attention_rnn(rnn_input)
-            queries = torch.squeeze(queries,dim=0)
-            return queries
-
-        def objects_to_pair_representations(object_representations):
-            num_objects = object_representations.size(0)
-
-            obj1_representations = self.obj1_linear(object_representations)
-            obj2_representations = self.obj2_linear(object_representations)
-
-            obj1_representations.unsqueeze_(-1)
-            obj2_representations.unsqueeze_(-1)
-
-            obj1_representations = obj1_representations.transpose(1,2)
-            obj2_representations = obj2_representations.transpose(1,2).transpose(0,1)
-
-            obj1_representations = obj1_representations.repeat(1,num_objects,1)
-            obj2_representations = obj2_representations.repeat(num_objects,1,1)
-
-            object_pair_representations = obj1_representations+obj2_representations
-
-            return object_pair_representations
-
-        object_features = input
-        
-
-
-       
-        outputs = list()
-        #object_features has shape batch_size x 256 x 16 x 24
-        obj_coord_map = coord_map((object_features.size(2),object_features.size(3)),object_features.device)
-        
-        for i in range(input.size(0)):
-            single_scene_object_features =  torch.squeeze(object_features[i,:],dim=0) #dim=256 x 16 x 24
-            scene_object_coords = torch.unsqueeze(torch.cat((single_scene_object_features,obj_coord_map),dim=0),dim=0)
-
-            fused_object_coords = torch.squeeze(self.object_coord_fuse(scene_object_coords),dim=0) #dim=256 x Z x Y
-
-
-            num_objects = objects_length[i]
-
-            queries = get_queries(fused_object_coords,num_objects)
-
-
-
-            attention_map = torch.einsum("ij,jkl -> ikl", queries,fused_object_coords) #dim=num_objects x Z x Y
-            attention_map = nn.Softmax(1)(attention_map.view(num_objects,-1)).view_as(attention_map)
-            object_values = torch.einsum("ijk,ljk -> il", attention_map, fused_object_coords) #dim=num_objects x 256
-
-            object_representations = self._norm(self.object_features_layer(object_values))
-
-            object_pair_representations = objects_to_pair_representations(object_representations)
-
-
-            outputs.append([
-                        None,
-                        object_representations,
-                        object_pair_representations
-                    ])
-
-        return outputs
-
 class SceneGraphObjectSupervision(nn.Module):
     def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=True,concatenative_pair_representation=True,args=None,img_input_dim=(16,24)):
         super().__init__()
@@ -1152,11 +693,74 @@ class TransformerCNN(nn.Module):
 
 
 
-class TransformerCNNObjectInference(TransformerCNN):
-    def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True, args=None,img_input_dim=(16,24)):
-        super().__init__(feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True, args=args,img_input_dim=(16,24))
+class ObjectClassifier(nn.Module):
+    def __init__(self, inp_dim):
+        super(ObjectClassifier, self).__init__()
+        self.relu = nn.ReLU()
+        self.conv1 = nn.Conv2d(inp_dim, inp_dim, padding=(4,0), kernel_size=5, stride=2, bias=True)
+        #self.norm = nn.InstanceNorm2d(out_dim,affine=True)
+        self.conv2 = nn.Conv2d(inp_dim,inp_dim, kernel_size=3, stride=2, bias=True)
+        self.conv3 = nn.Conv2d(inp_dim,1, kernel_size=3, stride=2, bias=True)
 
-        self.object_detector = nn.Sequential(nn.Linear(output_dims[1], 1),nn.Sigmoid())
+
+        #self.reset_parameters()
+
+    def reset_parameters(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight.data)
+                #m.bias.data.zero_()
+            elif isinstance(m, nn.Linear):
+                nn.init.kaiming_normal_(m.weight.data)
+                #m.bias.data.zero_()
+
+        self.last_conv.bias.data.fill_(-2.19)
+
+    def forward(self, x):
+        out = self.conv1(x)
+        #out = self.norm(out)
+        out = self.relu(out)
+        out = self.conv2(out)
+        out = self.relu(out)
+        out = self.conv3(out)
+        #
+        
+        return out 
+
+
+class TransformerCNNObjectInference(nn.Module):
+    def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True, args=None,img_input_dim=(16,24)):
+        super().__init__()
+        self.object_dropout = args.object_dropout
+        self.dropout_rate = args.object_dropout_rate
+        self.normalize_objects = args.normalize_objects
+
+
+        self.feature_dim = feature_dim
+        self.output_dims = output_dims
+        num_heads = 1
+        self.attention_net_1 = LocalAttentionNet(self.feature_dim+2,num_heads,padding=2,kernel_size=5)
+        self.attention_net_2 = LocalAttentionNet(self.feature_dim+1+2*num_heads,num_heads, padding=2, kernel_size=5)
+        self.attention_net_3 = LocalAttentionNet(self.feature_dim+1+2*num_heads,num_heads, padding=2, kernel_size=5)
+        
+        #self.attention_net_4 = LocalAttentionNet(self.feature_dim+1+2*num_heads,1, padding=2, kernel_size=5)
+
+        self.foreground_detector = LocalAttentionNet(self.feature_dim,1, padding=2, kernel_size=5)
+
+        #self.object_net = Residual(self.feature_dim+3,self.feature_dim,padding=0,kernel_size=1,pool=True)
+        
+        self.maxpool = nn.MaxPool2d(3,padding=1,stride=1)
+        #self.shared_feature_net = nn.Sequential(nn.Conv2d(feature_dim,feature_dim,kernel_size=1), nn.ReLU(),
+        #    nn.Conv2d(feature_dim,feature_dim,kernel_size=1), nn.ReLU())
+
+        #self.feature_net = Residual(feature_dim, feature_dim, padding=0, kernel_size=1)
+
+        #self.object_features_layer = nn.Sequential(nn.Linear(feature_dim,output_dims[1]),nn.ReLU())
+        self.obj1_linear = nn.Linear(output_dims[1],int(output_dims[1]))
+        self.obj2_linear = nn.Linear(output_dims[1],int(output_dims[1]))
+        #self.reset_parameters()
+
+        self.object_classifier = ObjectClassifier(self.feature_dim+1+2*num_heads)
 
     def forward(self, input, objects, objects_length):
         object_features = input
@@ -1320,6 +924,30 @@ class TransformerCNNObjectInference(TransformerCNN):
         return new_attentions
 
 
+    def detect_objects(self,feature_map,foreground_map, attentions, max_num_objects):
+        max_len = max_num_objects
+
+        foreground_map = F.logsigmoid(foreground_map)
+
+        batch_size = feature_map.size(0)
+        sum_scope = torch.zeros(batch_size,1,1,1).to(feature_map.device)
+
+        for i in range(len(attentions)):
+            attention = attentions[i]
+            log_probs = F.logsigmoid(-attention)
+            sum_scope = sum_scope + log_probs
+
+        object_probs = []
+        for attention in attentions:
+            scope = sum_scope - F.logsigmoid(-attention)
+            rep = torch.cat((feature_map,foreground_map,attention,scope),dim=1)
+            object_prob = self.object_classifier(rep)
+            object_prob = object_prob.squeeze(-1).squeeze(-1).squeeze(-1)
+            object_prob = torch.sigmoid(object_prob)
+            object_probs.append(object_prob)
+
+        return object_probs
+
 
 
     def get_objects(self,object_features,batch_size):
@@ -1351,10 +979,10 @@ class TransformerCNNObjectInference(TransformerCNN):
         attentions = self.transformer_layer(object_features,foreground_map, attentions, self.attention_net_2,max_num_objects)
         #
         attentions = self.transformer_layer(object_features,foreground_map, attentions, self.attention_net_3,max_num_objects)
-        #attentions = self.transformer_layer(object_features,foreground_map, attentions, self.attention_net_4)
+        #attentions = self.transformer_layer(object_features,foreground_map, attentions, self.attention_net_4,max_num_objects)
         #print(self.attention_net_4.conv1.weight.data)
 
-        object_weights = []
+        object_weights = self.detect_objects(object_features,foreground_map, attentions,max_num_objects)
 
         for slot in range(max_num_objects):
             
@@ -1369,13 +997,21 @@ class TransformerCNNObjectInference(TransformerCNN):
             
             object_representations.append(objects)
 
-            if True:
-                weight = self.object_detector(objects)
+            if False:
+                log_foreground_attention = torch.log(foreground_attention)
+                log_attention = torch.log(attention)
+                attention_product = (log_foreground_attention+log_attention).view(batch_size,-1)
+                weight = self.object_detector_foreground(attention_product).squeeze(1)
+                object_weights.append(weight)
+            elif False:
+                objects_normalized = self._norm(objects)
+                weight = self.object_detector(objects_normalized)
                 weight = weight.squeeze(1)
-            else:
+                object_weights.append(weight)
+            elif False:
                 normalized_attention = attention / torch.sum(attention,dim=(1,2)).view(batch_size,1,1)
                 weight = torch.einsum("bjk,bjk -> b",normalized_attention,foreground_attention)
-            object_weights.append(weight)
+                object_weights.append(weight)
 
             
 
@@ -1445,6 +1081,32 @@ class TransformerCNNObjectInference(TransformerCNN):
         
 
         return attentions_list
+
+
+    def objects_to_pair_representations(self, object_representations_batched):
+        num_objects = object_representations_batched.size(1)
+
+        obj1_representations = self.obj1_linear(object_representations_batched)
+        obj2_representations = self.obj2_linear(object_representations_batched)
+
+
+        obj1_representations.unsqueeze_(-1)#now batch_size x num_objects x feature_dim x 1
+        obj2_representations.unsqueeze_(-1)
+
+        obj1_representations = obj1_representations.transpose(2,3)
+        obj2_representations = obj2_representations.transpose(2,3).transpose(1,2)
+
+        obj1_representations = obj1_representations.repeat(1,1,num_objects,1)  
+        obj2_representations = obj2_representations.repeat(1,num_objects,1,1)
+
+        object_pair_representations = obj1_representations+obj2_representations
+        #object_pair_representations = object_pair_representations
+
+        return object_pair_representations
+
+    def _norm(self, x):
+        return x / x.norm(2, dim=-1, keepdim=True)
+
 
         
 
