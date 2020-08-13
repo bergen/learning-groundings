@@ -802,11 +802,13 @@ class TransformerCNNObjectInference(nn.Module):
                     epsilon = 0.0000001
                     zeros = torch.zeros(object_weights_scene.size()).to(object_weights_scene.device)+epsilon
                     ones = torch.ones(object_weights_scene.size()).to(object_weights_scene.device)
-                    if random.random()<0.5:
+                    if random.random()<1:
                         object_weights_scene = torch.where(object_weights_scene>0.5,ones,zeros)
                         for j in range(num_objects):
                             if object_weights_scene[j]<0.5:
                                 object_representations = object_representations.index_fill(0,torch.tensor(j).to(object_representations.device),0)
+                                object_pair_representations = object_pair_representations.index_fill(0,torch.tensor(j).to(object_representations.device),0)
+                                object_pair_representations = object_pair_representations.index_fill(1,torch.tensor(j).to(object_representations.device),0)
                             #object_pair_representations[j,:,:]=0
                             #object_pair_representations[:,j,:]=0
 
@@ -819,6 +821,8 @@ class TransformerCNNObjectInference(nn.Module):
                 for j in range(num_objects):
                     if object_weights_scene[j]<0.5:
                         object_representations = object_representations.index_fill(0,torch.tensor(j).to(object_representations.device),0)
+                        object_pair_representations = object_pair_representations.index_fill(0,torch.tensor(j).to(object_representations.device),0)
+                        object_pair_representations = object_pair_representations.index_fill(1,torch.tensor(j).to(object_representations.device),0)
 
             #object_pair_representations = self._norm(self.objects_to_pair_representations(object_representations))
             
@@ -1041,8 +1045,7 @@ class TransformerCNNObjectInference(nn.Module):
         #log_scope = init_scope.expand(batch_size, -1, -1, -1)
         #log_scope = F.logsigmoid(foreground_map)
 
-        attentions_list = []
-        #object_representations = []
+        attention_list = []
 
         indicators = self.local_max(foreground_map,max_num_objects)
 
@@ -1050,37 +1053,45 @@ class TransformerCNNObjectInference(nn.Module):
         attentions = self.transformer_layer(object_features,foreground_map, attentions, self.attention_net_2,max_num_objects)
         #
         attentions = self.transformer_layer(object_features,foreground_map, attentions, self.attention_net_3,max_num_objects)
-        #attentions = self.transformer_layer(object_features,foreground_map, attentions, self.attention_net_4)
+        #attentions = self.transformer_layer(object_features,foreground_map, attentions, self.attention_net_4,max_num_objects)
         #print(self.attention_net_4.conv1.weight.data)
 
-        object_weights = []
+        object_weights = self.detect_objects(object_features,foreground_map, attentions,max_num_objects)
+        object_weights = [float(w.squeeze(0)) for w in object_weights]
 
         for slot in range(max_num_objects):
             
             attention = F.sigmoid(attentions[slot])
             attention = attention.squeeze(1)
 
-            attentions_list.append(attention)
+            attention_list.append(attention)
+            #else:
+            #    attention = torch.exp(log_scope).squeeze(1)
 
-            #objects = torch.einsum("bjk,bljk -> bl", attention, foreground)
             
-            #object_representations.append(objects)
 
+            if False:
+                log_foreground_attention = torch.log(foreground_attention)
+                log_attention = torch.log(attention)
+                attention_product = (log_foreground_attention+log_attention).view(batch_size,-1)
+                weight = self.object_detector_foreground(attention_product).squeeze(1)
+                object_weights.append(weight)
+            elif False:
+                objects_normalized = self._norm(objects)
+                weight = self.object_detector(objects_normalized)
+                weight = weight.squeeze(1)
+                object_weights.append(weight)
+            elif False:
+                normalized_attention = attention / torch.sum(attention,dim=(1,2)).view(batch_size,1,1)
+                weight = torch.einsum("bjk,bjk -> b",normalized_attention,foreground_attention)
+                object_weights.append(weight)
 
-            normalized_attention = attention / torch.sum(attention,dim=(1,2)).view(attention.size(0),1,1)
-            weight = torch.einsum("bjk,bjk -> b",normalized_attention,foreground_attention)
-            object_weights.append(float(weight))
-
+            
         print(object_weights)
-        
-        #object_representations = [o for o,_ in sorted(zip(object_representations,object_weights),key=lambda y: y[1])]
-        #attentions_list = [a for a,_ in sorted(zip(attentions_list,object_weights),key=lambda y: y[1])]
-
-        #object_representations = torch.stack(object_representations,dim=1)
-        attentions_list = torch.stack(attentions_list,dim=1)
+        attention_list = torch.stack(attention_list,dim=1)
         
 
-        return attentions_list
+        return attention_list
 
 
     def objects_to_pair_representations(self, object_representations_batched):

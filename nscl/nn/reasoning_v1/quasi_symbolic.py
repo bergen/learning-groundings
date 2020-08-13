@@ -87,6 +87,8 @@ class ProgramExecutorContext(nn.Module):
         self.logit_semantics = args.logit_semantics
         self.relate_max = args.relate_max
 
+        self.args = args
+
         self.train(training)
 
     def filter(self, selected, group, concept_groups):
@@ -125,6 +127,9 @@ class ProgramExecutorContext(nn.Module):
             mask = (mask + selected.unsqueeze(-1).unsqueeze(0))
 
             mask = torch.logsumexp(mask,dim=-2) #need to verify that this logsumexp is over correct dimension
+
+            if self.args.infer_num_objects:
+                mask = torch.min(mask,torch.log(self.features[3]))
 
 
         return mask[group]
