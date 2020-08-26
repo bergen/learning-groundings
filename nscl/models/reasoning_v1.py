@@ -84,7 +84,7 @@ class ReasoningV1Model(nn.Module):
                         module.requires_grad = False
                     i+=1
         elif self.resnet_type=='resnet34_pytorch':
-            self.resnet = resnet34(pretrained=True)
+            self.resnet = resnet34(pretrained=args.pretrained_resnet,restrict_fine_tuning=args.restrict_finetuning)
         else:
             resnet_model = resnet_dict[self.resnet_type]
             self.resnet = resnet_model(pretrained=True, incl_gap=False, num_classes=None)

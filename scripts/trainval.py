@@ -43,7 +43,7 @@ parser.add_argument('--configs', default='', type='kv', metavar='CFGS')
 parser.add_argument('--expr', default=None, metavar='DIR', help='experiment name')
 parser.add_argument('--training-target', required=True, choices=['derender', 'parser', 'all'])
 parser.add_argument('--training-visual-modules', default='all', choices=['none', 'object', 'relation', 'all'])
-parser.add_argument('--curriculum', default='all', choices=['off', 'scene', 'program', 'all','restricted','accelerated','intermediate','simple_syntax','extended','restrict_syntax','no_complex_syntax','all_syntax'])
+parser.add_argument('--curriculum', default='all', choices=['off', 'scene', 'program', 'all','restricted','accelerated','intermediate','simple_syntax','extended','restrict_syntax','no_complex_syntax','all_syntax','all_syntax_objects','all_syntax_accelerated','nonrelation_first'])
 parser.add_argument('--question-transform', default='off', choices=['off', 'basic', 'parserv1-groundtruth', 'parserv1-candidates', 'parserv1-candidates-executed'])
 parser.add_argument('--concept-quantization-json', default=None, metavar='FILE')
 
@@ -131,7 +131,8 @@ parser.add_argument('--logit-semantics',type='bool',default=False)
 parser.add_argument('--bilinear-relation',type='bool',default=False)
 parser.add_argument('--coord-semantics',type='bool',default=False)
 parser.add_argument('--infer-num-objects',type='bool',default=False)
-
+parser.add_argument('--pretrained-resnet',type='bool',default=True)
+parser.add_argument('--loss-curriculum',type='bool',default=False)
 
 args = parser.parse_args()
 
@@ -367,6 +368,11 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
             (0, 10, 12),
             (1e9, None, None)
         ]
+    elif args.curriculum=='all_syntax_objects':
+        curriculum_strategy = [
+            (0, 10, 25),
+            (1e9, None, None)
+        ]
     elif args.curriculum=='intermediate':
         curriculum_strategy = [
             (0, 3, 4),
@@ -392,6 +398,18 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
             (70, 10, 20),
             (1e9, None, None)
         ]
+    elif args.curriculum=='all_syntax_accelerated':
+        curriculum_strategy = [
+            (0, 3, 20),
+            (5, 4, 20),
+            (10, 5, 20),
+            (15, 6, 20),
+            (20, 7, 20),
+            (25, 8, 20),
+            (30, 9, 20),
+            (35, 10, 20),
+            (1e9, None, None)
+        ]
     elif args.curriculum=='extended':
         curriculum_strategy = [
             (0, 3, 4),
@@ -404,6 +422,31 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
             (70, 8, 20),
             (80, 9, 22),
             (90, 10, 25),
+            (1e9, None, None)
+        ]
+    elif args.curriculum=='nonrelation_first':
+        remove_ops_nonrelation = ['relate_attribute_equal','query_attribute_equal','relate','union']
+        remove_ops_relation = ['relate_attribute_equal','query_attribute_equal','union']
+        curriculum_strategy = [
+            (0, 3, 4,remove_ops_nonrelation),
+            (10, 3, 6,remove_ops_nonrelation),
+            (20, 3, 8,remove_ops_nonrelation),
+            (30, 4, 8,remove_ops_nonrelation),
+            (40, 5, 12,remove_ops_nonrelation),
+            (50, 6, 12,remove_ops_nonrelation),
+            (60, 7, 16,remove_ops_nonrelation),
+            (70, 8, 20,remove_ops_nonrelation),
+            (80, 9, 22,remove_ops_nonrelation),
+            (90, 10, 25,remove_ops_nonrelation),
+            (100, 10, 12,remove_ops_relation),
+            (105, 3, 20,remove_ops_relation),
+            (110, 4, 20,remove_ops_relation),
+            (115, 5, 20,remove_ops_relation),
+            (120, 6, 20,remove_ops_relation),
+            (125, 7, 20,remove_ops_relation),
+            (130, 8, 20,remove_ops_relation),
+            (135, 9, 20,remove_ops_relation),
+            (140, 10, 20,remove_ops_relation),
             (1e9, None, None)
         ]
     elif args.curriculum=='simple_syntax':
@@ -460,6 +503,9 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
 
     gradient_magnitudes = {}
 
+    if args.loss_curriculum:
+        curriculum_index = 0
+
 
     for epoch in range(args.start_epoch + 1, args.epochs + 1):
         meters.reset()
@@ -470,17 +516,28 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
 
         this_train_dataset = train_dataset
         if args.curriculum != 'off':
-            for si, s in enumerate(curriculum_strategy):
-                if curriculum_strategy[si][0] < epoch <= curriculum_strategy[si + 1][0]:
-                    max_scene_size, max_program_size = s[1:]
-                    this_train_dataset = this_train_dataset.filter_scene_size(max_scene_size)
-                    this_train_dataset = this_train_dataset.filter_program_size_raw(max_program_size)
-                    if remove_ops is not None:
-                        this_train_dataset = this_train_dataset.filter_question_type(disallowed=remove_ops)
-                        if epoch < args.filter_relate_epoch:
-                            this_train_dataset = this_train_dataset.filter_question_type(disallowed=['relate'])
-                    logger.critical('Building the data loader. Curriculum = {}/{}, length = {}.'.format(*s[1:], len(this_train_dataset)))
-                    break
+            if args.loss_curriculum:
+                try:
+                    strategy = curriculum_strategy[curriculum_index]
+                except Exception as e:
+                    curriculum_index = curriculum_index - 1
+                    strategy = curriculum_strategy[curriculum_index]
+                max_scene_size, max_program_size = strategy[1],strategy[2]
+
+            else:
+                for si, s in enumerate(curriculum_strategy):
+                    if curriculum_strategy[si][0] < epoch <= curriculum_strategy[si + 1][0]:
+                        max_scene_size, max_program_size = s[1],s[2]
+                        if args.curriculum=='nonrelation_first':
+                            remove_ops = s[3]
+            this_train_dataset = this_train_dataset.filter_scene_size(max_scene_size)
+            this_train_dataset = this_train_dataset.filter_program_size_raw(max_program_size)
+            logger.critical('Building the data loader. Curriculum = {}/{}, length = {}.'.format(max_scene_size, max_program_size, len(this_train_dataset)))
+
+        if remove_ops is not None:
+            this_train_dataset = this_train_dataset.filter_question_type(disallowed=remove_ops)
+            #if epoch < args.filter_relate_epoch:
+            #    this_train_dataset = this_train_dataset.filter_question_type(disallowed=['relate'])
 
         train_dataloader = this_train_dataset.make_dataloader(args.batch_size, shuffle=True, drop_last=True, nr_workers=args.data_workers)
 
@@ -490,27 +547,53 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
             else:
                 train_epoch(epoch, trainer, train_dataloader, meters, model,gradient_magnitudes=gradient_magnitudes)
 
-        if epoch % args.validation_interval == 0:
+
+        if args.loss_curriculum:
+            try:
+                if meters.avg['loss'] < 0.1:
+                    model.eval()
+                    validate_epoch(epoch, trainer, validation_dataloader, meters)
+                    logger.critical(meters.format_simple(
+                    'Epoch = {}'.format(epoch),
+                    {k: v for k, v in meters.avg.items() if k.startswith('validation')}, compressed=False ))
+
+                    fname = osp.join(args.ckpt_dir, 'epoch_{}.pth'.format(epoch))
+                    csv_name = osp.join(args.meta_dir, 'gradient_magnitudes_epoch_{}.csv'.format(epoch))
+                    trainer.save_checkpoint(fname, dict(epoch=epoch, meta_file=args.meta_file))
+                    write_dict_to_csv(csv_name,gradient_magnitudes)
+            except Exception as e:
+                pass
+        elif epoch % args.validation_interval == 0:
             model.eval()
             validate_epoch(epoch, trainer, validation_dataloader, meters)
+            logger.critical(meters.format_simple(
+                'Epoch = {}'.format(epoch),
+                {k: v for k, v in meters.avg.items() if k.startswith('validation')}, compressed=False ))
 
         if not args.debug:
             meters.dump(args.meter_file)
 
         logger.critical(meters.format_simple(
             'Epoch = {}'.format(epoch),
-            {k: v for k, v in meters.avg.items() if epoch % args.validation_interval == 0 or not k.startswith('validation')},
+            {k: v for k, v in meters.avg.items() if not k.startswith('validation')},
             compressed=False
         ))
 
-        if epoch % args.save_interval == 0 and not args.debug:
-            fname = osp.join(args.ckpt_dir, 'epoch_{}.pth'.format(epoch))
-            csv_name = osp.join(args.meta_dir, 'gradient_magnitudes_epoch_{}.csv'.format(epoch))
-            trainer.save_checkpoint(fname, dict(epoch=epoch, meta_file=args.meta_file))
-            write_dict_to_csv(csv_name,gradient_magnitudes)
+        if not args.loss_curriculum:
+            if epoch % args.save_interval == 0 and not args.debug:
+                fname = osp.join(args.ckpt_dir, 'epoch_{}.pth'.format(epoch))
+                csv_name = osp.join(args.meta_dir, 'gradient_magnitudes_epoch_{}.csv'.format(epoch))
+                trainer.save_checkpoint(fname, dict(epoch=epoch, meta_file=args.meta_file))
+                write_dict_to_csv(csv_name,gradient_magnitudes)
 
         if epoch > int(args.epochs * args.lr_cliff_epoch):
             trainer.set_learning_rate(args.lr * 0.1)
+
+        try:
+            if meters.avg['loss'] < 0.1:
+                curriculum_index = curriculum_index + 1
+        except Exception as e:
+            pass
 
 def write_dict_to_csv(file,d):
     #d is a dict of lists

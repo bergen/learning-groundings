@@ -136,7 +136,7 @@ class QALoss(MultitaskLossBase):
         except Exception as e:
             self.presupposition_semantics = False
 
-        self.bool_threshold = 0.3
+        self.bool_threshold = 0.8
 
     def forward(self, feed_dict, answers, question_index=None, loss_weights=None, accuracy_weights=None):
         """
@@ -199,8 +199,13 @@ class QALoss(MultitaskLossBase):
                 outputs['answer'].append(idx2word[argmax])
                 gt = word2idx[gt]
                 loss = self._xent_loss
-            elif response_query_type == 'bool':
+            elif question_type=='exist':
                 argmax = int((a > math.log(self.bool_threshold)).item())
+                outputs['answer'].append(argmax)
+                gt = int(gt)
+                loss = self._bce_loss
+            elif response_query_type == 'bool':
+                argmax = int((a > math.log(0.5)).item())
                 outputs['answer'].append(argmax)
                 gt = int(gt)
                 loss = self._bce_loss

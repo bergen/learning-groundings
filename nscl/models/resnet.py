@@ -128,7 +128,7 @@ class ResNet(nn.Module):
 
     def __init__(self, block, layers, num_classes=1000, zero_init_residual=False,
                  groups=1, width_per_group=64, replace_stride_with_dilation=None,
-                 norm_layer=None):
+                 norm_layer=None,restrict_fine_tuning=True):
         super(ResNet, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
@@ -159,6 +159,8 @@ class ResNet(nn.Module):
                                        dilate=replace_stride_with_dilation[2])
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512 * block.expansion, num_classes)
+
+        self.restrict_fine_tuning = restrict_fine_tuning
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -203,7 +205,7 @@ class ResNet(nn.Module):
 
     def _forward_impl(self, x):
         # See note [TorchScript super()]
-        with torch.no_grad():
+        if not self.restrict_fine_tuning:
             x = self.conv1(x)
             x = self.bn1(x)
             x = self.relu(x)
@@ -211,7 +213,17 @@ class ResNet(nn.Module):
 
             x = self.layer1(x)
             x = self.layer2(x)
-        x = self.layer3(x)
+            x = self.layer3(x)
+        else:
+            with torch.no_grad():
+                x = self.conv1(x)
+                x = self.bn1(x)
+                x = self.relu(x)
+                x = self.maxpool(x)
+
+                x = self.layer1(x)
+                x = self.layer2(x)
+            x = self.layer3(x)
         
 
         return x
@@ -220,8 +232,8 @@ class ResNet(nn.Module):
         return self._forward_impl(x)
 
 
-def _resnet(arch, block, layers, pretrained, progress, **kwargs):
-    model = ResNet(block, layers, **kwargs)
+def _resnet(arch, block, layers, pretrained, progress,restrict_fine_tuning, **kwargs):
+    model = ResNet(block, layers,restrict_fine_tuning=restrict_fine_tuning, **kwargs)
     if pretrained:
         state_dict = load_state_dict_from_url(model_urls[arch],
                                               progress=progress)

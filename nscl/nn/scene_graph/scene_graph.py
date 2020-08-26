@@ -760,7 +760,9 @@ class TransformerCNNObjectInference(nn.Module):
         self.obj2_linear = nn.Linear(output_dims[1],int(output_dims[1]))
         #self.reset_parameters()
 
+        #self.object_detector_rep = LocalAttentionNet(self.feature_dim,self.feature_dim,padding=1,kernel_size=3)
         self.object_classifier = ObjectClassifier(self.feature_dim+1+2*num_heads)
+        #self.object_classifier = nn.Sequential(nn.Linear(self.feature_dim,1),nn.Sigmoid())
 
     def forward(self, input, objects, objects_length):
         object_features = input
@@ -799,30 +801,33 @@ class TransformerCNNObjectInference(nn.Module):
                     #    index = random.randrange(num_objects)
                     #    object_representations[index,:]=0
 
-                    epsilon = 0.0000001
-                    zeros = torch.zeros(object_weights_scene.size()).to(object_weights_scene.device)+epsilon
-                    ones = torch.ones(object_weights_scene.size()).to(object_weights_scene.device)
-                    if random.random()<1:
-                        object_weights_scene = torch.where(object_weights_scene>0.5,ones,zeros)
-                        for j in range(num_objects):
-                            if object_weights_scene[j]<0.5:
-                                object_representations = object_representations.index_fill(0,torch.tensor(j).to(object_representations.device),0)
-                                object_pair_representations = object_pair_representations.index_fill(0,torch.tensor(j).to(object_representations.device),0)
-                                object_pair_representations = object_pair_representations.index_fill(1,torch.tensor(j).to(object_representations.device),0)
-                            #object_pair_representations[j,:,:]=0
-                            #object_pair_representations[:,j,:]=0
-
-            else: #validation
-                epsilon = 0.0000001
-                zeros = torch.zeros(object_weights_scene.size()).to(object_weights_scene.device)+epsilon
-                ones = torch.ones(object_weights_scene.size()).to(object_weights_scene.device)
-
-                object_weights_scene = torch.where(object_weights_scene>0.5,ones,zeros)
-                for j in range(num_objects):
-                    if object_weights_scene[j]<0.5:
+                    #epsilon = 0.0000001
+                    #zeros = torch.zeros(object_weights_scene.size()).to(object_weights_scene.device)+epsilon
+                    #ones = torch.ones(object_weights_scene.size()).to(object_weights_scene.device)
+                    
+                    #    object_weights_scene = torch.where(object_weights_scene>0.5,ones,zeros)
+                    if random.random()<self.dropout_rate:
+                        j = random.randrange(num_objects)
+                        
                         object_representations = object_representations.index_fill(0,torch.tensor(j).to(object_representations.device),0)
                         object_pair_representations = object_pair_representations.index_fill(0,torch.tensor(j).to(object_representations.device),0)
                         object_pair_representations = object_pair_representations.index_fill(1,torch.tensor(j).to(object_representations.device),0)
+                            #object_pair_representations[j,:,:]=0
+                            #object_pair_representations[:,j,:]=0
+
+            else:
+                if True:
+                    threshold = 0.8
+                    epsilon = 0.000000000001
+                    zeros = torch.zeros(object_weights_scene.size()).to(object_weights_scene.device)+epsilon
+                    ones = torch.ones(object_weights_scene.size()).to(object_weights_scene.device)
+
+                    object_weights_scene = torch.where(object_weights_scene>threshold,ones,zeros)
+                    for j in range(num_objects):
+                        if object_weights_scene[j]<threshold:
+                            object_representations = object_representations.index_fill(0,torch.tensor(j).to(object_representations.device),0)
+                            object_pair_representations = object_pair_representations.index_fill(0,torch.tensor(j).to(object_representations.device),0)
+                            object_pair_representations = object_pair_representations.index_fill(1,torch.tensor(j).to(object_representations.device),0)
 
             #object_pair_representations = self._norm(self.objects_to_pair_representations(object_representations))
             
@@ -985,7 +990,8 @@ class TransformerCNNObjectInference(nn.Module):
         attentions = self.transformer_layer(object_features,foreground_map, attentions, self.attention_net_3,max_num_objects)
         #attentions = self.transformer_layer(object_features,foreground_map, attentions, self.attention_net_4,max_num_objects)
         #print(self.attention_net_4.conv1.weight.data)
-
+        #object_weights = []
+        #object_detection_representation = self.object_detector_rep(object_features)
         object_weights = self.detect_objects(object_features,foreground_map, attentions,max_num_objects)
 
         for slot in range(max_num_objects):
@@ -1015,6 +1021,11 @@ class TransformerCNNObjectInference(nn.Module):
             elif False:
                 normalized_attention = attention / torch.sum(attention,dim=(1,2)).view(batch_size,1,1)
                 weight = torch.einsum("bjk,bjk -> b",normalized_attention,foreground_attention)
+                object_weights.append(weight)
+            elif False:
+                current_object_detection_representation = torch.einsum("bjk,bljk -> bl",attention,object_detection_representation)
+                current_object_detection_representation = self._norm(current_object_detection_representation)
+                weight = self.object_classifier(current_object_detection_representation).squeeze(1)
                 object_weights.append(weight)
 
             
