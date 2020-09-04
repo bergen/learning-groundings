@@ -438,7 +438,7 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
             (80, 8, 20,remove_ops_nonrelation),
             (90, 9, 22,remove_ops_nonrelation),
             (100, 10, 25,remove_ops_nonrelation),
-            (105, 10, 12,remove_ops_relation),
+            (105, 10, 12,remove_ops_relation,0.00002),
             (110, 3, 20,remove_ops_relation),
             (115, 4, 20,remove_ops_relation),
             (120, 5, 20,remove_ops_relation),
@@ -530,6 +530,8 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
                         max_scene_size, max_program_size = s[1],s[2]
                         if args.curriculum=='nonrelation_first':
                             remove_ops = s[3]
+                            if len(s)==5:
+                                trainer.set_learning_rate(s[4])
             this_train_dataset = this_train_dataset.filter_scene_size(max_scene_size)
             this_train_dataset = this_train_dataset.filter_program_size_raw(max_program_size)
             logger.critical('Building the data loader. Curriculum = {}/{}, length = {}.'.format(max_scene_size, max_program_size, len(this_train_dataset)))
