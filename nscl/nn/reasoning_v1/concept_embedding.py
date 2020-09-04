@@ -48,6 +48,7 @@ class ConceptBlock(nn.Module):
         self.nr_attributes = nr_attributes
         self.attribute_agnostic = attribute_agnostic
 
+
         if bilinear:
             self.embedding = nn.Parameter(torch.randn(embedding_dim,embedding_dim))
         elif coord_semantics:
@@ -166,13 +167,13 @@ class ConceptEmbedding(nn.Module):
     def similarity(self, query, identifier,k=1,mutual_exclusive=True, logit_semantics=False):
         #identifier is a concept
         #returns a list of log probabilities: prob that each object is the concept
-        if k==1 or self.bilinear_relation:
-            query = query[1]
-        elif self.coord_semantics:
-            query = query[3]
-        else:
-            query = query[2]
+        #if k==1:
+        #    query = query[1]
+        #else:
+        #    query = query[2]
 
+
+        batch_size = query.size(0)
         attributes = self.all_attributes
         concept = self.get_concept(identifier)
         attribute_index = concept.belong.argmax(-1).item()
@@ -186,60 +187,29 @@ class ConceptEmbedding(nn.Module):
             
 
 
-            if self.bilinear_relation:
-                query = mapping(query)
-                logits = torch.einsum('ax,xy,by->ab',query,concept.embedding,query)
-                log_prob = nn.LogSigmoid()(logits)
-            else:
-                num_objs = query.size(0)
-                query = query.reshape(-1,query.size(-1))
-                if not self.coord_semantics:
-                    query = mapping(query)
-                    concept_embedding = concept.normalized_embedding[attr_id]
-                    query = query / query.norm(2, dim=-1, keepdim=True)
-                else:
-                    concept_embedding = concept.normalized_embedding
+            num_objs = query.size(1)
+            query = query.reshape(batch_size,-1,query.size(-1))
+            query = mapping(query)
+            concept_embedding = concept.normalized_embedding[attr_id]
+            query = query / query.norm(2, dim=-1, keepdim=True)
 
-                
-                logits = (torch.matmul(query,concept_embedding)/self.tau)
-                if logit_semantics:
-                    log_prob = logits
-                else:
-                    log_prob = nn.LogSigmoid()(logits)
+            
+            logits = (torch.einsum("bor,r->bo",query,concept_embedding)/self.tau)
+            log_prob = nn.LogSigmoid()(logits)
 
-                log_prob = log_prob.reshape(num_objs,num_objs)
+            log_prob = log_prob.reshape(batch_size,num_objs,num_objs)
 
 
         
 
         elif k==1:
-            if logit_semantics:
-                attr_identifier = attributes[attribute_index]
-                mapping = self.get_attribute(attr_identifier)
-                attr_id = self.attribute2id[attr_identifier]
-            
-                query = mapping(query)
-                query = query / query.norm(2, dim=-1, keepdim=True)
-                concept_embedding = concept.normalized_embedding[attr_id]
-                logits = (torch.matmul(query,concept_embedding)/self.tau)
-                log_prob = logits
-            elif mutual_exclusive:
-                prob, word2ix = self.query_attribute(query,attributes[attribute_index])
+            prob, word2ix = self.query_attribute(query,attributes[attribute_index])
 
 
-                concept_index = word2ix[identifier]
+            concept_index = word2ix[identifier]
 
-                log_prob = prob[:,concept_index]
-            else:
-                attr_identifier = attributes[attribute_index]
-                mapping = self.get_attribute(attr_identifier)
-                attr_id = self.attribute2id[attr_identifier]
-            
-                query = mapping(query)
-                query = query / query.norm(2, dim=-1, keepdim=True)
-                concept_embedding = concept.normalized_embedding[attr_id]
-                logits = (torch.matmul(query,concept_embedding)/self.tau)
-                log_prob = nn.LogSigmoid()(logits)
+            log_prob = prob[:,concept_index]
+
 
 
 
@@ -249,32 +219,7 @@ class ConceptEmbedding(nn.Module):
         
         return log_prob
 
-    def similarity2(self, q1, q2, identifier, _normalized=False,logit_semantics=False):
-        """
-        Args:
-            _normalized (bool): backdoor for function `cross_similarity`.
-        """
 
-        global _query_assisted_same
-
-        logits_and = lambda x, y: torch.min(x, y)
-        logits_or = lambda x, y: torch.max(x, y)
-
-        tau = 0.1
-
-        if not _normalized:
-            q1 = q1 / q1.norm(2, dim=-1, keepdim=True)
-            q2 = q2 / q2.norm(2, dim=-1, keepdim=True)
-
-        if not _query_assisted_same or not self.training:
-            #this is the code that runs during training. 
-            margin = self._margin_cross
-            logits = ((q1 * q2).sum(dim=-1)) / tau
-            if logit_semantics:
-                log_probs = logits
-            else:
-                log_probs = nn.LogSigmoid()(logits)
-            return log_probs
         
     def kl_divergence(self,p1,p2):
         raw_p1 = torch.exp(p1)
@@ -286,25 +231,25 @@ class ConceptEmbedding(nn.Module):
     def cross_similarity(self, query, identifier,logit_semantics=False):
         #identifier is an attribute, e.g. "color"
         #query is a tensor of object representations. a single object representation is a single vector
-        if True:
-            probs,word2idx = self.query_attribute(query,identifier)
-            probs1,probs2 = jactorch.meshgrid(probs,dim=-2)
+        probs,word2idx = self.query_attribute(query,identifier)
 
-            kl = self.kl_divergence(probs1,probs2)
+        num_objects = probs.size(1)
+        probs.unsqueeze_(-1)
 
-            return -1*kl
+        probs1 = probs.transpose(2,3)
+        probs2 = probs.transpose(2,3).transpose(1,2)
+
+        probs1 = probs1.repeat(1,1,num_objects,1)
+        probs2 = probs2.repeat(1,num_objects,1,1)
+
+
+        kl = self.kl_divergence(probs1,probs2)
+
+        return -1*kl
 
 
 
 
-        else:
-            mapping = self.get_attribute(identifier)
-            query = mapping(query)
-            query = query / query.norm(2, dim=-1, keepdim=True)
-            q1, q2 = jactorch.meshgrid(query, dim=-2)
-            #q1, q2 are used as all pairs of objects
-
-            return self.similarity2(q1, q2, identifier, _normalized=True,logit_semantics=logit_semantics)
 
     def map_attribute(self, query, identifier):
         mapping = self.get_attribute(identifier)
@@ -355,22 +300,22 @@ class ConceptEmbedding(nn.Module):
 
     #    return masks, word2idx
     def query_attribute(self, query, identifier):
-        #query is num_objs x obj_rep_size
+        #query is batch_size x num_objs x obj_rep_size
         #identifier is an attribute
         #returns a log probability distribution over concepts, for each object (which concept is the answer to the query, for each object)
         mapping, concepts, attr_id = self.get_concepts_by_attribute(identifier)
         query = mapping(query)
         query = query / query.norm(2, dim=-1, keepdim=True)
 
-        num_objs = query.size(0)
+        num_objs = query.size(1)
 
         word2idx = {}
         masks = []
         embeddings = []
-        skip_embedding = torch.zeros((query.size(1)),dtype=torch.float32).to(query.device)
+        skip_embedding = torch.zeros((query.size(2)),dtype=torch.float32).to(query.device)
 
-        filter_keep = torch.zeros((query.size(0)),dtype=torch.float32).to(query.device)
-        filter_remove = -100*torch.ones((query.size(0)),dtype=torch.float32).to(query.device)
+        filter_keep = torch.zeros((query.size(1)),dtype=torch.float32).to(query.device)
+        filter_remove = -100*torch.ones((query.size(1)),dtype=torch.float32).to(query.device)
 
         filters = []
         for k, v in concepts.items(): 
@@ -400,9 +345,9 @@ class ConceptEmbedding(nn.Module):
         filters = torch.stack(filters,dim=1)
         embeddings = torch.stack(embeddings, dim=1) 
 
-        masks = (torch.matmul(query,embeddings)+ self.margin)/self.tau
+        masks = (torch.einsum("bor,rc->boc",query,embeddings)+ self.margin)/self.tau
         masks = masks+filters
-        normalizing_constant = torch.logsumexp(masks,dim=1,keepdim=True)
+        normalizing_constant = torch.logsumexp(masks,dim=-1,keepdim=True)
         #we normalize the probabilities for each object: each object can only satisfy a single concept
         
         masks = masks - normalizing_constant

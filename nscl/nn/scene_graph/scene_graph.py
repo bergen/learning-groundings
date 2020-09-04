@@ -764,6 +764,25 @@ class TransformerCNNObjectInference(nn.Module):
         self.object_classifier = ObjectClassifier(self.feature_dim+1+2*num_heads)
         #self.object_classifier = nn.Sequential(nn.Linear(self.feature_dim,1),nn.Sigmoid())
 
+
+        self.object_indices = {}
+        for i in range(64):
+            for j in range(10):
+                self.object_indices[(i,j)] = torch.tensor([[i,j,k] for k in range(self.feature_dim)])
+        self.object_substitute_val = torch.ones(self.object_indices[(0,0)].shape[0])
+
+
+        self.object_pair_indices_1 = {}
+        for i in range(64):
+            for j in range(10):
+                self.object_pair_indices_1[(i,j)] = torch.tensor([[i,j,k,l] for k in range(10) for l in range(self.feature_dim)])
+        self.object_pair_substitute_val = torch.ones(self.object_pair_indices_1[(0,0)].shape[0])
+
+        self.object_pair_indices_2 = {}
+        for i in range(64):
+            for j in range(10):
+                self.object_pair_indices_2[(i,j)] = torch.tensor([[i,k,j,l] for k in range(10) for l in range(self.feature_dim)])
+
     def forward(self, input, objects, objects_length):
         object_features = input
         
@@ -791,9 +810,9 @@ class TransformerCNNObjectInference(nn.Module):
         outputs = []
         for i in range(batch_size):
             num_objects = 10
-            object_representations = torch.squeeze(object_representations_batched[i,0:num_objects,:],dim=0)
-            object_pair_representations = torch.squeeze(object_pair_representations_batched[i,0:num_objects,0:num_objects,:],dim=0)
-            object_weights_scene = torch.squeeze(object_weights[i,:],dim=0)
+            #object_representations = torch.squeeze(object_representations_batched[i,0:num_objects,:],dim=0)
+            #object_pair_representations = torch.squeeze(object_pair_representations_batched[i,0:num_objects,0:num_objects,:],dim=0)
+            #object_weights_scene = torch.squeeze(object_weights[i,:],dim=0)
 
             if self.training:
                 if self.object_dropout:
@@ -809,9 +828,9 @@ class TransformerCNNObjectInference(nn.Module):
                     if random.random()<self.dropout_rate:
                         j = random.randrange(num_objects)
                         
-                        object_representations = object_representations.index_fill(0,torch.tensor(j).to(object_representations.device),0)
-                        object_pair_representations = object_pair_representations.index_fill(0,torch.tensor(j).to(object_representations.device),0)
-                        object_pair_representations = object_pair_representations.index_fill(1,torch.tensor(j).to(object_representations.device),0)
+                        object_representations_batched = object_representations_batched.index_put(tuple(self.object_indices[(i,j)].t().to(object_values_batched.device)),self.object_substitute_val.to(object_values_batched.device))
+                        object_pair_representations_batched = object_pair_representations_batched.index_put(tuple(self.object_pair_indices_1[(i,j)].t().to(object_values_batched.device)),self.object_pair_substitute_val.to(object_values_batched.device))
+                        object_pair_representations_batched = object_pair_representations_batched.index_put(tuple(self.object_pair_indices_1[(i,j)].t().to(object_values_batched.device)),self.object_pair_substitute_val.to(object_values_batched.device))
                             #object_pair_representations[j,:,:]=0
                             #object_pair_representations[:,j,:]=0
 
@@ -819,25 +838,27 @@ class TransformerCNNObjectInference(nn.Module):
                 if True:
                     threshold = 0.8
                     epsilon = 0.000000000001
-                    zeros = torch.zeros(object_weights_scene.size()).to(object_weights_scene.device)+epsilon
-                    ones = torch.ones(object_weights_scene.size()).to(object_weights_scene.device)
+                    #zeros = torch.zeros(object_weights[0].size()).to(object_weights.device)+epsilon
+                    #ones = torch.ones(object_weights[0].size()).to(object_weights.device)
 
-                    object_weights_scene = torch.where(object_weights_scene>threshold,ones,zeros)
+                    #object_weights_scene = torch.where(object_weights[i]>threshold,ones,zeros)
                     for j in range(num_objects):
-                        if object_weights_scene[j]<threshold:
-                            object_representations = object_representations.index_fill(0,torch.tensor(j).to(object_representations.device),0)
-                            object_pair_representations = object_pair_representations.index_fill(0,torch.tensor(j).to(object_representations.device),0)
-                            object_pair_representations = object_pair_representations.index_fill(1,torch.tensor(j).to(object_representations.device),0)
+                        if object_weights[i,j]<threshold:
+                            object_representations_batched = object_representations_batched.index_put(tuple(self.object_indices[(i,j)].t().to(object_values_batched.device)),self.object_substitute_val.to(object_values_batched.device))
+                            object_pair_representations_batched = object_pair_representations_batched.index_put(tuple(self.object_pair_indices_1[(i,j)].t().to(object_values_batched.device)),self.object_pair_substitute_val.to(object_values_batched.device))
+                            object_pair_representations_batched = object_pair_representations_batched.index_put(tuple(self.object_pair_indices_1[(i,j)].t().to(object_values_batched.device)),self.object_pair_substitute_val.to(object_values_batched.device))
 
             #object_pair_representations = self._norm(self.objects_to_pair_representations(object_representations))
             
             
-            outputs.append([
-                        None,
-                        object_representations,
-                        object_pair_representations,
-                        object_weights_scene
-                    ])
+            #outputs.append([
+            #            None,
+            #            object_representations,
+            #            object_pair_representations,
+            #            object_weights_scene
+            #        ])
+
+        outputs = [None,object_representations_batched,object_pair_representations_batched,object_weights]
 
 
         return outputs
