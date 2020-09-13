@@ -431,7 +431,7 @@ class DifferentiableReasoning(nn.Module):
 
             result.append((op, buffer[-1]))
 
-            quasi_symbolic_debug.embed(self, i, buffer, result, fd)
+            #quasi_symbolic_debug.embed(self, i, buffer, result, fd)
 
         return programs, buffers, result
 

@@ -728,11 +728,12 @@ class ObjectClassifier(nn.Module):
         return out 
 
 
+
+
 class TransformerCNNObjectInference(nn.Module):
     def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True, args=None,img_input_dim=(16,24)):
         super().__init__()
         self.object_dropout = args.object_dropout
-        self.dropout_rate = args.object_dropout_rate
         self.normalize_objects = args.normalize_objects
 
 
@@ -764,7 +765,7 @@ class TransformerCNNObjectInference(nn.Module):
         self.object_classifier = ObjectClassifier(self.feature_dim+1+2*num_heads)
         #self.object_classifier = nn.Sequential(nn.Linear(self.feature_dim,1),nn.Sigmoid())
 
-    def forward(self, input, objects, objects_length):
+    def forward(self, input, objects, objects_length,args):
         object_features = input
         
 
@@ -806,7 +807,7 @@ class TransformerCNNObjectInference(nn.Module):
                     #ones = torch.ones(object_weights_scene.size()).to(object_weights_scene.device)
                     
                     #    object_weights_scene = torch.where(object_weights_scene>0.5,ones,zeros)
-                    if random.random()<self.dropout_rate:
+                    if random.random()<args.object_dropout_rate:
                         j = random.randrange(num_objects)
                         
                         object_representations = object_representations.index_fill(0,torch.tensor(j).to(object_representations.device),0)
@@ -1130,6 +1131,66 @@ class TransformerCNNObjectInference(nn.Module):
         return x / x.norm(2, dim=-1, keepdim=True)
 
 
+class TransformerCNNObjectInferenceAblateScope(TransformerCNNObjectInference):
+    def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True, args=None,img_input_dim=(16,24)):
+        super().__init__(feature_dim, output_dims, downsample_rate, args=args)
+
+        num_heads = 1
+        self.attention_net_1 = LocalAttentionNet(self.feature_dim+2,num_heads,padding=2,kernel_size=5)
+        self.attention_net_2 = LocalAttentionNet(self.feature_dim+1+1*num_heads,num_heads, padding=2, kernel_size=5)
+        self.attention_net_3 = LocalAttentionNet(self.feature_dim+1+1*num_heads,num_heads, padding=2, kernel_size=5)
+        
+
+        #self.object_detector_rep = LocalAttentionNet(self.feature_dim,self.feature_dim,padding=1,kernel_size=3)
+        self.object_classifier = ObjectClassifier(self.feature_dim+1+1*num_heads)
+        #self.object_classifier = nn.Sequential(nn.Linear(self.feature_dim,1),nn.Sigmoid())
+
+    def transformer_layer(self,feature_map,foreground_map, attentions,attention_net, max_num_objects):
+        max_len = max_num_objects
+
+        foreground_map = F.logsigmoid(foreground_map)
+
+        batch_size = feature_map.size(0)
+        sum_scope = torch.zeros(batch_size,1,1,1).to(feature_map.device)
+
+        for i in range(len(attentions)):
+            attention = attentions[i]
+            log_probs = F.logsigmoid(-attention)
+            sum_scope = sum_scope + log_probs
+
+        new_attentions = []
+        for attention in attentions:
+            scope = sum_scope - F.logsigmoid(-attention)
+            rep = torch.cat((feature_map,foreground_map,attention),dim=1)
+            new_attention = attention_net(rep)
+            new_attentions.append(new_attention)
+
+        return new_attentions
+
+
+    def detect_objects(self,feature_map,foreground_map, attentions, max_num_objects):
+        max_len = max_num_objects
+
+        foreground_map = F.logsigmoid(foreground_map)
+
+        batch_size = feature_map.size(0)
+        sum_scope = torch.zeros(batch_size,1,1,1).to(feature_map.device)
+
+        for i in range(len(attentions)):
+            attention = attentions[i]
+            log_probs = F.logsigmoid(-attention)
+            sum_scope = sum_scope + log_probs
+
+        object_probs = []
+        for attention in attentions:
+            scope = sum_scope - F.logsigmoid(-attention)
+            rep = torch.cat((feature_map,foreground_map,attention),dim=1)
+            object_prob = self.object_classifier(rep)
+            object_prob = object_prob.squeeze(-1).squeeze(-1).squeeze(-1)
+            object_prob = torch.sigmoid(object_prob)
+            object_probs.append(object_prob)
+
+        return object_probs
         
 
 class MonetLiteSceneGraph(nn.Module):

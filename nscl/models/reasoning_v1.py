@@ -102,7 +102,8 @@ class ReasoningV1Model(nn.Module):
                             'scene-graph-object-supervised': sng.SceneGraphObjectSupervision,
                             'monet-lite': sng.MonetLiteSceneGraph,
                             'transformer-cnn': sng.TransformerCNN,
-                            'transformer-cnn-object-inference': sng.TransformerCNNObjectInference}
+                            'transformer-cnn-object-inference': sng.TransformerCNNObjectInference,
+                            'transformer-cnn-object-inference-ablate-scope': sng.TransformerCNNObjectInferenceAblateScope}
 
         try:
             if args.attention_type=='monet':

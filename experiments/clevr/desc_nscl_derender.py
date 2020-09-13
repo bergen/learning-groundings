@@ -70,6 +70,8 @@ class Model(ReasoningV1Model):
         feed_dict = GView(feed_dict)
         monitors, outputs = {}, {}
 
+        args = feed_dict.args
+
 
         if self.attention_type=='monet':
             f_scene = feed_dict.image     
@@ -85,7 +87,7 @@ class Model(ReasoningV1Model):
         elif self.attention_type=='scene-graph-object-supervised':
             f_sng = self.scene_graph(f_scene, feed_dict.objects, feed_dict.objects_length)
         else:
-            f_sng = self.scene_graph(f_scene, feed_dict.objects, object_lengths)
+            f_sng = self.scene_graph(f_scene, feed_dict.objects, object_lengths,args)
         
         
 

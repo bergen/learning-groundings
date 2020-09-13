@@ -43,7 +43,7 @@ parser.add_argument('--configs', default='', type='kv', metavar='CFGS')
 parser.add_argument('--expr', default=None, metavar='DIR', help='experiment name')
 parser.add_argument('--training-target', required=True, choices=['derender', 'parser', 'all'])
 parser.add_argument('--training-visual-modules', default='all', choices=['none', 'object', 'relation', 'all'])
-parser.add_argument('--curriculum', default='all', choices=['off', 'scene', 'program', 'all','restricted','accelerated','intermediate','simple_syntax','extended','restrict_syntax','no_complex_syntax','all_syntax','all_syntax_objects','all_syntax_accelerated','nonrelation_first'])
+parser.add_argument('--curriculum', default='all', choices=['off', 'scene', 'program', 'all','restricted','accelerated','intermediate','simple_syntax','extended','restrict_syntax','no_complex_syntax','all_syntax','all_syntax_objects','all_syntax_accelerated','nonrelation_first','nonrelation_first_v2'])
 parser.add_argument('--question-transform', default='off', choices=['off', 'basic', 'parserv1-groundtruth', 'parserv1-candidates', 'parserv1-candidates-executed'])
 parser.add_argument('--concept-quantization-json', default=None, metavar='FILE')
 
@@ -98,7 +98,8 @@ parser.add_argument('--attention-type', default='cnn', choices=['cnn', 'naive-rn
                                                                 'transformer',
                                                                 'monet-lite',
                                                                 'transformer-cnn',
-                                                                'transformer-cnn-object-inference'])
+                                                                'transformer-cnn-object-inference',
+                                                                'transformer-cnn-object-inference-ablate-scope'])
 
 parser.add_argument('--attention-loss', type='bool', default=False)
 parser.add_argument('--anneal-rnn', type='bool', default=False)
@@ -110,7 +111,7 @@ parser.add_argument('--subtractive-rnn', type='bool', default=False)
 parser.add_argument('--subtract-from-scene', type='bool', default=True)
 parser.add_argument('--rnn-type', default='lstm', choices=['lstm','gru'])
 parser.add_argument('--full-recurrence', type='bool', default=True)
-parser.add_argument('--lr-cliff-epoch', type=int, default=50) #this is the epoch at which the lr will fall by factor of 0.1
+parser.add_argument('--lr-cliff-epoch', type=int, default=200) #this is the epoch at which the lr will fall by factor of 0.1
 parser.add_argument('--optimizer', default='adamw', choices=['adamw', 'rmsprop'])
 parser.add_argument('--fine-tune-resnet-epoch', type=int, default=100)
 parser.add_argument('--fine-tune-semantics-epoch', type=int, default=100)
@@ -428,25 +429,49 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
         remove_ops_nonrelation = ['relate_attribute_equal','query_attribute_equal','relate','union']
         remove_ops_relation = ['relate_attribute_equal','query_attribute_equal','union']
         curriculum_strategy = [
-            (0, 3, 4,remove_ops_nonrelation),
+            (0, 3, 4,remove_ops_nonrelation,0.00004,0),
             (10, 3, 6,remove_ops_nonrelation),
             (20, 3, 8,remove_ops_nonrelation),
-            (40, 4, 8,remove_ops_nonrelation),
-            (50, 5, 12,remove_ops_nonrelation),
-            (60, 6, 12,remove_ops_nonrelation),
-            (70, 7, 16,remove_ops_nonrelation),
-            (80, 8, 20,remove_ops_nonrelation),
-            (90, 9, 22,remove_ops_nonrelation),
-            (100, 10, 25,remove_ops_nonrelation),
-            (105, 10, 12,remove_ops_relation,0.00002),
-            (110, 3, 20,remove_ops_relation),
+            (30, 4, 8,remove_ops_nonrelation),
+            (40, 5, 12,remove_ops_nonrelation),
+            (50, 6, 12,remove_ops_nonrelation),
+            (60, 7, 16,remove_ops_nonrelation),
+            (70, 8, 20,remove_ops_nonrelation),
+            (80, 9, 22,remove_ops_nonrelation),
+            (90, 10, 25,remove_ops_nonrelation),
+            (100, 3, 10,remove_ops_relation,0.00002,0.03),
+            (110, 4, 10,remove_ops_relation),
+            (120, 5, 15,remove_ops_relation),
+            (130, 6, 20,remove_ops_relation),
+            (140, 7, 20,remove_ops_relation),
+            (150, 8, 20,remove_ops_relation),
+            (160, 9, 20,remove_ops_relation),
+            (170, 10, 20,remove_ops_relation),
+            (1e9, None, None)
+        ]
+    elif args.curriculum=='nonrelation_first_v2':
+        remove_ops_nonrelation = ['relate_attribute_equal','query_attribute_equal','relate','union']
+        remove_ops_relation = ['relate_attribute_equal','query_attribute_equal','union']
+        curriculum_strategy = [
+            (0, 3, 4,remove_ops_nonrelation,0.00004,0),
+            (10, 3, 6,remove_ops_nonrelation),
+            (20, 3, 8,remove_ops_nonrelation),
+            (30, 4, 8,remove_ops_nonrelation),
+            (40, 5, 12,remove_ops_nonrelation),
+            (50, 6, 12,remove_ops_nonrelation),
+            (60, 7, 16,remove_ops_nonrelation),
+            (70, 8, 20,remove_ops_nonrelation),
+            (80, 9, 22,remove_ops_nonrelation),
+            (90, 10, 25,remove_ops_nonrelation),
+            (100, 10, 12,remove_ops_relation,0.00002,0.03),
+            (105, 3, 20,remove_ops_relation,0.00002,0.03),
             (115, 4, 20,remove_ops_relation),
-            (120, 5, 20,remove_ops_relation),
-            (125, 6, 20,remove_ops_relation),
-            (130, 7, 20,remove_ops_relation),
-            (135, 8, 20,remove_ops_relation),
-            (140, 9, 20,remove_ops_relation),
-            (145, 10, 20,remove_ops_relation),
+            (125, 5, 20,remove_ops_relation),
+            (135, 6, 20,remove_ops_relation),
+            (145, 7, 20,remove_ops_relation),
+            (155, 8, 20,remove_ops_relation),
+            (165, 9, 20,remove_ops_relation),
+            (175, 10, 20,remove_ops_relation),
             (1e9, None, None)
         ]
     elif args.curriculum=='simple_syntax':
@@ -528,10 +553,19 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
                 for si, s in enumerate(curriculum_strategy):
                     if curriculum_strategy[si][0] < epoch <= curriculum_strategy[si + 1][0]:
                         max_scene_size, max_program_size = s[1],s[2]
-                        if args.curriculum=='nonrelation_first':
+                        if 'nonrelation_first' in args.curriculum:
                             remove_ops = s[3]
-                            if len(s)==5:
-                                trainer.set_learning_rate(s[4])
+                            if len(s)>=5 and epoch==curriculum_strategy[si][0]+1:
+                                trainable_parameters = filter(lambda x: x.requires_grad, model.parameters())
+                                optimizer = optimizer_fn(trainable_parameters, s[4], weight_decay=configs.train.weight_decay)
+                                if args.acc_grad > 1:
+                                    optimizer = AccumGrad(optimizer, args.acc_grad)
+                                trainer = TrainerEnv.TrainerEnv(model, optimizer)
+                            if len(s)>=6:
+                                
+                                args.object_dropout_rate = s[5]
+
+                                
             this_train_dataset = this_train_dataset.filter_scene_size(max_scene_size)
             this_train_dataset = this_train_dataset.filter_program_size_raw(max_program_size)
             logger.critical('Building the data loader. Curriculum = {}/{}, length = {}.'.format(max_scene_size, max_program_size, len(this_train_dataset)))
@@ -547,7 +581,7 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
             if args.adversarial_loss:
                 train_epoch(epoch, trainer, train_dataloader, meters, model, adversarial_trainer,gradient_magnitudes=gradient_magnitudes)
             else:
-                train_epoch(epoch, trainer, train_dataloader, meters, model,gradient_magnitudes=gradient_magnitudes)
+                train_epoch(epoch, trainer, train_dataloader, meters, model, args,gradient_magnitudes=gradient_magnitudes)
 
 
         if args.loss_curriculum:
@@ -588,7 +622,7 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
                 trainer.save_checkpoint(fname, dict(epoch=epoch, meta_file=args.meta_file))
                 write_dict_to_csv(csv_name,gradient_magnitudes)
 
-        if epoch > int(args.epochs * args.lr_cliff_epoch):
+        if epoch > int(args.lr_cliff_epoch):
             trainer.set_learning_rate(args.lr * 0.1)
 
         try:
@@ -628,7 +662,7 @@ def get_model_gradient_magnitude(model):
     n = torch.norm(grads, p=2)
     return n.item()
 
-def train_epoch(epoch, trainer, train_dataloader, meters,model,adversarial_trainer=None,gradient_magnitudes=None):
+def train_epoch(epoch, trainer, train_dataloader, meters,model,args,adversarial_trainer=None,gradient_magnitudes=None):
     nr_iters = args.iters_per_epoch
     if nr_iters == 0:
         nr_iters = len(train_dataloader)
@@ -653,6 +687,7 @@ def train_epoch(epoch, trainer, train_dataloader, meters,model,adversarial_train
             feed_dict = next(train_iter)
 
             feed_dict['epoch'] = epoch
+            feed_dict['args'] = args
 
             if adversarial_trainer is not None:
                 feed_dict['adversary'] = adversary
@@ -714,6 +749,7 @@ def validate_epoch(epoch, trainer, val_dataloader, meters, meter_prefix='validat
     with tqdm_pbar(total=len(val_dataloader)) as pbar:
         for feed_dict in val_dataloader:
             feed_dict['epoch'] = epoch
+            feed_dict['args'] = args
 
             if args.use_gpu:
                 if not args.gpu_parallel:
