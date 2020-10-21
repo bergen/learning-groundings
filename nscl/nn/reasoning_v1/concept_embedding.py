@@ -35,7 +35,7 @@ class ConceptBlock(nn.Module):
     """
     Concept as an embedding in the corresponding attribute space.
     """
-    def __init__(self, embedding_dim, nr_attributes, attribute_agnostic=False,bilinear=False,coord_semantics=False):
+    def __init__(self, embedding_dim, nr_attributes, threshold_normalize=None,attribute_agnostic=False,bilinear=False,coord_semantics=False):
         """
         Args:
             embedding_dim (int): dimension of the embedding.
@@ -60,6 +60,8 @@ class ConceptBlock(nn.Module):
         self.belong = nn.Parameter(torch.randn(nr_attributes) * 0.1)
 
         self.known_belong = False
+
+        self.threshold_normalize = threshold_normalize
 
     def set_belong(self, belong_id):
         """
@@ -92,7 +94,7 @@ class ConceptBlock(nn.Module):
 
 
 class ConceptEmbedding(nn.Module):
-    def __init__(self, attribute_agnostic,bilinear_relation,coord_semantics):
+    def __init__(self, attribute_agnostic,bilinear_relation,coord_semantics, threshold_normalize):
         super().__init__()
 
         self.attribute_agnostic = attribute_agnostic
@@ -106,6 +108,7 @@ class ConceptEmbedding(nn.Module):
 
         self.bilinear_relation = bilinear_relation
         self.coord_semantics = coord_semantics
+        self.threshold_normalize = threshold_normalize
 
     @property
     def nr_attributes(self):
@@ -127,7 +130,7 @@ class ConceptEmbedding(nn.Module):
         self.all_attributes.sort()
 
     def init_concept(self, identifier, input_dim, known_belong=None):
-        block = ConceptBlock(input_dim, self.nr_attributes, attribute_agnostic=self.attribute_agnostic,bilinear=self.bilinear_relation,coord_semantics=self.coord_semantics)
+        block = ConceptBlock(input_dim, self.nr_attributes, attribute_agnostic=self.attribute_agnostic,bilinear=self.bilinear_relation,coord_semantics=self.coord_semantics,threshold_normalize=self.threshold_normalize)
         self.concept_embeddings.add_module('concept_' + identifier, block)
         if known_belong is not None:
             block.set_belong(self.attribute2id[known_belong])
@@ -196,7 +199,11 @@ class ConceptEmbedding(nn.Module):
                 if not self.coord_semantics:
                     query = mapping(query)
                     concept_embedding = concept.normalized_embedding[attr_id]
+                    #if not self.threshold_normalize:
                     query = query / query.norm(2, dim=-1, keepdim=True)
+                    #else:
+                    #    query_norm = query.norm(2, dim=-1, keepdim=True)
+                    #    query = torch.where(query_norm<self.threshold_normalize, query, query / query_norm)
                 else:
                     concept_embedding = concept.normalized_embedding
 
@@ -360,7 +367,11 @@ class ConceptEmbedding(nn.Module):
         #returns a log probability distribution over concepts, for each object (which concept is the answer to the query, for each object)
         mapping, concepts, attr_id = self.get_concepts_by_attribute(identifier)
         query = mapping(query)
+        #if not self.threshold_normalize:
         query = query / query.norm(2, dim=-1, keepdim=True)
+        #else:
+        #    query_norm = query.norm(2, dim=-1, keepdim=True)
+        #    query = torch.where(query_norm<self.threshold_normalize, query, query / query_norm)
 
         num_objs = query.size(0)
 

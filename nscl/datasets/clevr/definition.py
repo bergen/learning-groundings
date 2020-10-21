@@ -97,10 +97,10 @@ class CLEVRDefinition(DatasetDefinitionBase):
     ]
 
     attribute_concepts = {
-        'color': ['gray', 'red', 'blue', 'green', 'brown', 'purple', 'cyan', 'yellow'],
-        'material': ['rubber', 'metal'],
-        'shape': ['cube', 'sphere', 'cylinder'],
-        'size': ['small', 'large']
+        'color': ['gray', 'red', 'blue', 'green', 'brown', 'purple', 'cyan', 'yellow','null_color'],
+        'material': ['rubber', 'metal','null_material'],
+        'shape': ['cube', 'sphere', 'cylinder','null_shape'],
+        'size': ['small', 'large','null_size']
     }
 
     relational_concepts = {

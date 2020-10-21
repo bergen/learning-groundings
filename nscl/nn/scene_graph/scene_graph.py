@@ -728,6 +728,46 @@ class ObjectClassifier(nn.Module):
         return out 
 
 
+class ObjectClassifierV2(nn.Module):
+    def __init__(self, inp_dim,padding=2,kernel_size=5):
+        super(ObjectClassifierV2, self).__init__()
+        self.relu = nn.ReLU()
+        self.residual_conv = nn.Conv2d(inp_dim, 1, padding=0, kernel_size=1, bias=True)
+        self.conv1 = nn.Conv2d(inp_dim, inp_dim, padding=padding, kernel_size=kernel_size, bias=True)
+        #self.norm = nn.InstanceNorm2d(out_dim,affine=True)
+        self.conv2 = nn.Conv2d(inp_dim,inp_dim, padding=padding, kernel_size=kernel_size, bias=True)
+        self.conv3 = nn.Conv2d(inp_dim,1, padding=padding, kernel_size=kernel_size, bias=True)
+        self.fc = nn.Linear(16*24,1)
+
+
+        #self.reset_parameters()
+
+    def reset_parameters(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight.data)
+                #m.bias.data.zero_()
+            elif isinstance(m, nn.Linear):
+                nn.init.kaiming_normal_(m.weight.data)
+                #m.bias.data.zero_()
+
+        self.last_conv.bias.data.fill_(-2.19)
+
+    def forward(self, x):
+        out = self.conv1(x)
+        residual = self.residual_conv(x)
+        #out = self.norm(out)
+        out = self.relu(out)
+        out = self.conv2(out)
+        out = self.relu(out)
+        out = self.conv3(out)
+        out = out + residual
+        #
+
+        out = self.fc(out.view(out.size(0),-1))
+        
+        return out 
+
 
 
 class TransformerCNNObjectInference(nn.Module):
@@ -735,6 +775,7 @@ class TransformerCNNObjectInference(nn.Module):
         super().__init__()
         self.object_dropout = args.object_dropout
         self.normalize_objects = args.normalize_objects
+        self.threshold_normalize = args.threshold_normalize
 
 
         self.feature_dim = feature_dim
@@ -762,8 +803,13 @@ class TransformerCNNObjectInference(nn.Module):
         #self.reset_parameters()
 
         #self.object_detector_rep = LocalAttentionNet(self.feature_dim,self.feature_dim,padding=1,kernel_size=3)
-        self.object_classifier = ObjectClassifier(self.feature_dim+1+2*num_heads)
+        if True:
+            self.object_classifier = ObjectClassifierV2(self.feature_dim+1+2*num_heads)
+        elif False:
+            self.object_classifier = ObjectClassifier(3)
         #self.object_classifier = nn.Sequential(nn.Linear(self.feature_dim,1),nn.Sigmoid())
+
+        self.unit_vector = (torch.ones((self.feature_dim))/torch.sqrt(torch.tensor(self.feature_dim).float())).cuda()
 
     def forward(self, input, objects, objects_length,args):
         object_features = input
@@ -783,7 +829,11 @@ class TransformerCNNObjectInference(nn.Module):
         object_values_batched, object_weights  = self.get_objects(object_features, batch_size)
 
         if self.normalize_objects:
-            object_representations_batched = self._norm(object_values_batched)
+            if True:
+                object_representations_batched = self._norm(object_values_batched)
+            elif False:
+                object_probs = torch.sigmoid(object_weights).unsqueeze(-1)
+                object_representations_batched = object_probs*self._norm(object_values_batched) + (1-object_probs)*self.unit_vector
         else:
             object_representations_batched = object_values_batched
         #object_representations_batched = self._norm(self.object_features_layer(object_values_batched))
@@ -950,7 +1000,10 @@ class TransformerCNNObjectInference(nn.Module):
         object_probs = []
         for attention in attentions:
             scope = sum_scope - F.logsigmoid(-attention)
-            rep = torch.cat((feature_map,foreground_map,attention,scope),dim=1)
+            if True:
+                rep = torch.cat((feature_map,foreground_map,attention,scope),dim=1)
+            elif False:
+                rep = torch.cat((foreground_map,attention,scope),dim=1)
             object_prob = self.object_classifier(rep)
             object_prob = object_prob.squeeze(-1).squeeze(-1).squeeze(-1)
             object_prob = torch.sigmoid(object_prob)
@@ -993,7 +1046,11 @@ class TransformerCNNObjectInference(nn.Module):
         #print(self.attention_net_4.conv1.weight.data)
         #object_weights = []
         #object_detection_representation = self.object_detector_rep(object_features)
-        object_weights = self.detect_objects(object_features,foreground_map, attentions,max_num_objects)
+        
+        if True:
+            object_weights = self.detect_objects(object_features,foreground_map, attentions,max_num_objects)
+        else:
+            object_weights = []
 
         for slot in range(max_num_objects):
             
@@ -1027,6 +1084,10 @@ class TransformerCNNObjectInference(nn.Module):
                 current_object_detection_representation = torch.einsum("bjk,bljk -> bl",attention,object_detection_representation)
                 current_object_detection_representation = self._norm(current_object_detection_representation)
                 weight = self.object_classifier(current_object_detection_representation).squeeze(1)
+                object_weights.append(weight)
+
+            elif False:
+                weight, _ = torch.max(attention.view(batch_size,-1),dim=-1)
                 object_weights.append(weight)
 
             
@@ -1128,7 +1189,11 @@ class TransformerCNNObjectInference(nn.Module):
         return object_pair_representations
 
     def _norm(self, x):
-        return x / x.norm(2, dim=-1, keepdim=True)
+        if not self.threshold_normalize:
+            return x / x.norm(2, dim=-1, keepdim=True)
+        else:
+            normed_x = x.norm(2, dim=-1, keepdim=True)
+            return torch.where(normed_x<self.threshold_normalize, x, x / normed_x)
 
 
 class TransformerCNNObjectInferenceAblateScope(TransformerCNNObjectInference):

@@ -321,6 +321,7 @@ class DifferentiableReasoning(nn.Module):
 
 
         self.args = args
+        self.threshold_normalize = args.threshold_normalize
 
         for i, nr_vars in enumerate(['attribute', 'relation']):
             if nr_vars not in self.used_concepts:
@@ -331,7 +332,8 @@ class DifferentiableReasoning(nn.Module):
             else:
                 bilinear = False
                 coord_semantics = False
-            setattr(self, 'embedding_' + nr_vars, concept_embedding.ConceptEmbedding(vse_attribute_agnostic,bilinear_relation=bilinear,coord_semantics=coord_semantics))
+
+            setattr(self, 'embedding_' + nr_vars, concept_embedding.ConceptEmbedding(vse_attribute_agnostic,bilinear_relation=bilinear,coord_semantics=coord_semantics,threshold_normalize=self.threshold_normalize))
             tax = getattr(self, 'embedding_' + nr_vars)
             rec = self.used_concepts[nr_vars]
 
