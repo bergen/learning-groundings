@@ -768,6 +768,106 @@ class ObjectClassifierV2(nn.Module):
         
         return out 
 
+class ObjectClassifierResnet(nn.Module):
+    def __init__(self, inp_dim):
+        super(ObjectClassifierResnet, self).__init__()
+
+        self.conv = conv3x3(inp_dim, inp_dim)
+        self.relu = nn.ReLU(inplace=False)
+
+        layers = []
+        for i in range(2):
+            layers.append(ResidualBlock(inp_dim, inp_dim))
+        self.res_layer = nn.Sequential(*layers)
+        self.output_conv = nn.Conv2d(inp_dim,1, padding=0, kernel_size=1, bias=True)
+        self.fc = nn.Linear(16*24,1)
+
+
+        #self.reset_parameters()
+
+    def forward(self, x):
+        out = self.conv(x)
+        out = self.relu(out)
+        out = self.res_layer(out)
+        out = self.output_conv(out)
+        #
+
+        out = self.fc(out.view(out.size(0),-1))
+        
+        return out 
+
+def conv3x3(in_channels, out_channels, stride=1):
+    return nn.Conv2d(in_channels, out_channels, kernel_size=3, 
+                     stride=stride, padding=1, bias=False)
+
+# Residual block
+class ResidualBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, stride=1, downsample=None):
+        super(ResidualBlock, self).__init__()
+        self.conv1 = conv3x3(in_channels, out_channels, stride)
+        self.bn1 = nn.BatchNorm2d(out_channels)
+        self.relu = nn.ReLU(inplace=False)
+        self.conv2 = conv3x3(out_channels, out_channels)
+        self.bn2 = nn.BatchNorm2d(out_channels)
+        self.downsample = downsample
+
+    def forward(self, x):
+        residual = x
+        out = self.conv1(x)
+        #out = self.bn1(out)
+        out = self.relu(out)
+        out = self.conv2(out)
+        #out = self.bn2(out)
+        if self.downsample:
+            residual = self.downsample(x)
+        out = out + residual
+        out = self.relu(out)
+        return out
+
+# ResNet
+class ResNet(nn.Module):
+    def __init__(self,in_channels, out_channels):
+        super(ResNet, self).__init__()
+        block = ResidualBlock
+        layers = [3, 2, 2]
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.conv = conv3x3(in_channels, in_channels)
+        self.bn = nn.BatchNorm2d(16)
+        self.relu = nn.ReLU(inplace=False)
+        self.layer1 = self.make_layer(block, in_channels, layers[0])
+        #self.layer2 = self.make_layer(block, in_channels, layers[1])
+        #self.layer3 = self.make_layer(block, in_channels, layers[2])
+
+        self.output_conv = nn.Conv2d(in_channels, out_channels, kernel_size=1, padding=0, bias=True)
+
+    def make_layer(self, block, out_channels, blocks, stride=1):
+        downsample = None
+        #if (stride != 1) or (self.in_channels != out_channels):
+        #    downsample = nn.Sequential(
+        #        conv3x3(self.in_channels, out_channels, stride=stride),
+        #        nn.BatchNorm2d(out_channels))
+        layers = []
+        layers.append(block(self.in_channels, out_channels, stride, downsample))
+        self.in_channels = out_channels
+        for i in range(1, blocks):
+            layers.append(block(out_channels, out_channels))
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        out = self.conv(x)
+        #out = self.bn(out)
+        out = self.relu(out)
+        out = self.layer1(out)
+        #out = self.layer2(out)
+        #out = self.layer3(out)
+        out = self.output_conv(out)
+
+
+        #out = self.avg_pool(out)
+        #out = out.view(out.size(0), -1)
+        #out = self.fc(out)
+        return out
 
 
 class TransformerCNNObjectInference(nn.Module):
@@ -781,13 +881,22 @@ class TransformerCNNObjectInference(nn.Module):
         self.feature_dim = feature_dim
         self.output_dims = output_dims
         num_heads = 1
-        self.attention_net_1 = LocalAttentionNet(self.feature_dim+2,num_heads,padding=2,kernel_size=5)
-        self.attention_net_2 = LocalAttentionNet(self.feature_dim+1+2*num_heads,num_heads, padding=2, kernel_size=5)
-        self.attention_net_3 = LocalAttentionNet(self.feature_dim+1+2*num_heads,num_heads, padding=2, kernel_size=5)
-        
+
+        if False:
+            self.attention_net_1 = LocalAttentionNet(self.feature_dim+2,num_heads,padding=2,kernel_size=5)
+            self.attention_net_2 = LocalAttentionNet(self.feature_dim+1+2*num_heads,num_heads, padding=2, kernel_size=5)
+            self.attention_net_3 = LocalAttentionNet(self.feature_dim+1+2*num_heads,num_heads, padding=2, kernel_size=5)
+        elif True:
+            self.attention_net_1 = ResNet(self.feature_dim+2,num_heads)
+            self.attention_net_2 = ResNet(self.feature_dim+1+2*num_heads,num_heads)
+            self.attention_net_3 = ResNet(self.feature_dim+1+2*num_heads,num_heads)
+            
         #self.attention_net_4 = LocalAttentionNet(self.feature_dim+1+2*num_heads,1, padding=2, kernel_size=5)
 
-        self.foreground_detector = LocalAttentionNet(self.feature_dim,1, padding=2, kernel_size=5)
+        if False:
+            self.foreground_detector = LocalAttentionNet(self.feature_dim,1, padding=2, kernel_size=5)
+        elif True:
+            self.foreground_detector = ResNet(self.feature_dim,1)
 
         #self.object_net = Residual(self.feature_dim+3,self.feature_dim,padding=0,kernel_size=1,pool=True)
         
@@ -803,8 +912,10 @@ class TransformerCNNObjectInference(nn.Module):
         #self.reset_parameters()
 
         #self.object_detector_rep = LocalAttentionNet(self.feature_dim,self.feature_dim,padding=1,kernel_size=3)
-        if True:
+        if False:
             self.object_classifier = ObjectClassifierV2(self.feature_dim+1+2*num_heads)
+        elif True:
+            self.object_classifier = ObjectClassifierResnet(self.feature_dim+1+2*num_heads)
         elif False:
             self.object_classifier = ObjectClassifier(3)
         #self.object_classifier = nn.Sequential(nn.Linear(self.feature_dim,1),nn.Sigmoid())
@@ -868,12 +979,12 @@ class TransformerCNNObjectInference(nn.Module):
 
             else:
                 if True:
-                    threshold = 0.8
-                    epsilon = 0.000000000001
-                    zeros = torch.zeros(object_weights_scene.size()).to(object_weights_scene.device)+epsilon
-                    ones = torch.ones(object_weights_scene.size()).to(object_weights_scene.device)
+                    threshold = -0.6 #assuming that weights are in logspace
+                    epsilon = -10
+                    zeros = torch.zeros(object_weights_scene.size()).to(object_weights_scene.device)
+                    epsilons = torch.zeros(object_weights_scene.size()).to(object_weights_scene.device) +epsilon
 
-                    object_weights_scene = torch.where(object_weights_scene>threshold,ones,zeros)
+                    object_weights_scene = torch.where(object_weights_scene>threshold,zeros,epsilons)
                     for j in range(num_objects):
                         if object_weights_scene[j]<threshold:
                             object_representations = object_representations.index_fill(0,torch.tensor(j).to(object_representations.device),0)
@@ -1006,7 +1117,7 @@ class TransformerCNNObjectInference(nn.Module):
                 rep = torch.cat((foreground_map,attention,scope),dim=1)
             object_prob = self.object_classifier(rep)
             object_prob = object_prob.squeeze(-1).squeeze(-1).squeeze(-1)
-            object_prob = torch.sigmoid(object_prob)
+            object_prob = F.logsigmoid(object_prob)
             object_probs.append(object_prob)
 
         return object_probs

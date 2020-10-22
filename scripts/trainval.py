@@ -43,7 +43,7 @@ parser.add_argument('--configs', default='', type='kv', metavar='CFGS')
 parser.add_argument('--expr', default=None, metavar='DIR', help='experiment name')
 parser.add_argument('--training-target', required=True, choices=['derender', 'parser', 'all'])
 parser.add_argument('--training-visual-modules', default='all', choices=['none', 'object', 'relation', 'all'])
-parser.add_argument('--curriculum', default='all', choices=['off', 'scene', 'program', 'all','restricted','accelerated','intermediate','simple_syntax','extended','restrict_syntax','no_complex_syntax','all_syntax','all_syntax_fast','all_syntax_objects','all_syntax_accelerated','nonrelation_first','nonrelation_first_v2','nonrelation_first_v3','nonrelation_first_v4'])
+parser.add_argument('--curriculum', default='all', choices=['off', 'scene', 'program', 'all','restricted','accelerated','intermediate','simple_syntax','extended','restrict_syntax','no_complex_syntax','all_syntax','all_syntax_fast','all_syntax_objects','all_syntax_accelerated','nonrelation_first','nonrelation_first_v2','nonrelation_first_v3','nonrelation_first_v4','nonrelation_first_v5'])
 parser.add_argument('--question-transform', default='off', choices=['off', 'basic', 'parserv1-groundtruth', 'parserv1-candidates', 'parserv1-candidates-executed'])
 parser.add_argument('--concept-quantization-json', default=None, metavar='FILE')
 
@@ -513,6 +513,10 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
             (90, 10, 25,remove_ops_nonrelation),
             (110, 10, 12,remove_ops_relation,0.00001,0.03),
             (120, 10, 20,remove_ops_relation),
+            (130, 10, 21,remove_ops_relation),
+            (140, 10, 22,remove_ops_relation),
+            (150, 10, 24,remove_ops_relation),
+            (160, 10, 25,remove_ops_relation),
             (1e9, None, None)
         ]
     elif args.curriculum=='nonrelation_first_v4':
@@ -522,15 +526,46 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
             (0, 3, 4,remove_ops_nonrelation, args.lr, 0),
             (10, 3, 6,remove_ops_nonrelation),
             (20, 3, 8,remove_ops_nonrelation),
-            (30, 4, 8,remove_ops_nonrelation,args.lr*2,0),
+            (30, 4, 8,remove_ops_nonrelation),
+            (40, 5, 12,remove_ops_nonrelation),
+            (50, 6, 12,remove_ops_nonrelation),
+            (60, 7, 16,remove_ops_nonrelation,args.lr/10,0),
+            (70, 8, 20,remove_ops_nonrelation),
+            (80, 9, 22,remove_ops_nonrelation),
+            (90, 10, 25,remove_ops_nonrelation),
+            (110, 10, 12,remove_ops_relation,0.00001,0),
+            (120, 10, 20,remove_ops_relation),
+            (130, 10, 21,remove_ops_relation),
+            (140, 10, 22,remove_ops_relation),
+            (150, 10, 24,remove_ops_relation),
+            (160, 10, 25,remove_ops_relation),
+            (1e9, None, None)
+        ]
+    elif args.curriculum=='nonrelation_first_v5':
+        remove_ops_nonrelation = ['relate_attribute_equal','query_attribute_equal','relate','union']
+        remove_ops_relation = ['relate_attribute_equal','query_attribute_equal','union']
+        curriculum_strategy = [
+            (0, 3, 4,remove_ops_nonrelation, args.lr, 0),
+            (10, 3, 6,remove_ops_nonrelation),
+            (20, 3, 8,remove_ops_nonrelation),
+            (30, 4, 8,remove_ops_nonrelation),
             (40, 5, 12,remove_ops_nonrelation),
             (50, 6, 12,remove_ops_nonrelation),
             (60, 7, 16,remove_ops_nonrelation),
             (70, 8, 20,remove_ops_nonrelation),
             (80, 9, 22,remove_ops_nonrelation),
             (90, 10, 25,remove_ops_nonrelation),
-            (110, 10, 12,remove_ops_relation,0.00001,0.03),
-            (120, 10, 20,remove_ops_relation),
+            (110, 10, 12,remove_ops_relation,0.00001,0),
+            (120, 3, 20,remove_ops_relation),
+            (130, 4, 20,remove_ops_relation),
+            (140, 5, 20,remove_ops_relation),
+            (150, 6, 20,remove_ops_relation),
+            (160, 7, 20,remove_ops_relation),
+            (170, 8, 20,remove_ops_relation),
+            (180, 9, 20,remove_ops_relation),
+            (190, 10, 20,remove_ops_relation),
+            (200, 10, 21,remove_ops_relation),
+            (210, 10, 22,remove_ops_relation),
             (120, 10, 25,remove_ops_relation),
             (1e9, None, None)
         ]

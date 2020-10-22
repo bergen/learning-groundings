@@ -129,7 +129,7 @@ class ProgramExecutorContext(nn.Module):
             mask = torch.logsumexp(mask,dim=-2) #need to verify that this logsumexp is over correct dimension
 
             if self.args.infer_num_objects:
-                mask = torch.min(mask,torch.log(self.features[3]))
+                mask = torch.min(mask,self.features[3])
 
 
         return mask[group]
@@ -369,7 +369,7 @@ class DifferentiableReasoning(nn.Module):
 
                 if op == 'scene':
                     if self.args.infer_num_objects:
-                        buffer.append(torch.log(features[3]))
+                        buffer.append(features[3])
                     else:
                         buffer.append(torch.zeros(features[1].size(0), dtype=torch.float, device=features[1].device))
                     continue
