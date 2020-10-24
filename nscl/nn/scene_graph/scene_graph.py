@@ -826,7 +826,7 @@ class ResidualBlock(nn.Module):
 
 # ResNet
 class ResNet(nn.Module):
-    def __init__(self,in_channels, out_channels):
+    def __init__(self,in_channels, out_channels,use_fc=False):
         super(ResNet, self).__init__()
         block = ResidualBlock
         layers = [3, 2, 2]
@@ -840,6 +840,11 @@ class ResNet(nn.Module):
         #self.layer3 = self.make_layer(block, in_channels, layers[2])
 
         self.output_conv = nn.Conv2d(in_channels, out_channels, kernel_size=1, padding=0, bias=True)
+
+        self.use_fc = use_fc
+        if self.use_fc:
+            self.fc = nn.Linear(16*24,1)
+
 
     def make_layer(self, block, out_channels, blocks, stride=1):
         downsample = None
@@ -862,6 +867,9 @@ class ResNet(nn.Module):
         #out = self.layer2(out)
         #out = self.layer3(out)
         out = self.output_conv(out)
+
+        if self.use_fc:
+            out = self.fc(out.view(out.size(0),-1))
 
 
         #out = self.avg_pool(out)
@@ -915,7 +923,7 @@ class TransformerCNNObjectInference(nn.Module):
         if False:
             self.object_classifier = ObjectClassifierV2(self.feature_dim+1+2*num_heads)
         elif True:
-            self.object_classifier = ObjectClassifierResnet(self.feature_dim+1+2*num_heads)
+            self.object_classifier = ResNet(self.feature_dim+1+2*num_heads,1,use_fc=True)
         elif False:
             self.object_classifier = ObjectClassifier(3)
         #self.object_classifier = nn.Sequential(nn.Linear(self.feature_dim,1),nn.Sigmoid())

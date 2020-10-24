@@ -555,7 +555,7 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
             (70, 8, 20,remove_ops_nonrelation),
             (80, 9, 22,remove_ops_nonrelation),
             (90, 10, 25,remove_ops_nonrelation),
-            (110, 10, 12,remove_ops_relation,0.00001,0),
+            (110, 10, 12,remove_ops_relation,args.lr,args.object_dropout_rate),
             (120, 3, 20,remove_ops_relation),
             (130, 4, 20,remove_ops_relation),
             (140, 5, 20,remove_ops_relation),

@@ -190,7 +190,7 @@ class ProgramExecutorContext(nn.Module):
         if self.training:
             return torch.exp(selected).sum(dim=-1)
         else:
-            return (selected > math.log(0.8)).float().sum()
+            return (selected > math.log(0.5)).float().sum()
             #return torch.exp(selected).sum(dim=-1).round()
 
     _count_margin = -0.25
