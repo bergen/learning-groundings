@@ -139,11 +139,10 @@ class Model(ReasoningV1Model):
 
         f_scene = self.resnet(feed_dict.image)
 
+        args = feed_dict.args
 
-        if self.anneal_rnn:
-            f_sng = self.scene_graph(f_scene, feed_dict.objects, object_lengths,60)
-        else:
-            f_sng = self.scene_graph(f_scene, feed_dict.objects, object_lengths)
+
+        f_sng = self.scene_graph(f_scene, feed_dict.objects, object_lengths,args)
         
         
         return f_sng

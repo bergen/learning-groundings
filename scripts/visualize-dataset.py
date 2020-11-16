@@ -66,6 +66,7 @@ parser.add_argument('--attention-type', default='cnn', choices=['cnn', 'naive-rn
                                                                 'monet-lite',
                                                                 'transformer-cnn',
                                                                 'transformer-cnn-object-inference'])
+
 parser.add_argument('--attention-loss', type='bool', default=False)
 parser.add_argument('--anneal-rnn', type='bool', default=False)
 parser.add_argument('--adversarial-loss', type='bool', default=False)
@@ -76,8 +77,8 @@ parser.add_argument('--subtractive-rnn', type='bool', default=False)
 parser.add_argument('--subtract-from-scene', type='bool', default=True)
 parser.add_argument('--rnn-type', default='lstm', choices=['lstm','gru'])
 parser.add_argument('--full-recurrence', type='bool', default=True)
-parser.add_argument('--lr-cliff-epoch', type=int, default=50) #this is the epoch at which the lr will fall by factor of 0.1
-parser.add_argument('--optimizer', default='adamw', choices=['adamw', 'rmsprop'])
+parser.add_argument('--lr-cliff-epoch', type=int, default=200) #this is the epoch at which the lr will fall by factor of 0.1
+parser.add_argument('--optimizer', default='adamw', choices=['adamw', 'rmsprop','adabelief'])
 parser.add_argument('--fine-tune-resnet-epoch', type=int, default=100)
 parser.add_argument('--fine-tune-semantics-epoch', type=int, default=100)
 parser.add_argument('--restrict-finetuning', type='bool', default=True)
@@ -97,6 +98,11 @@ parser.add_argument('--logit-semantics',type='bool',default=False)
 parser.add_argument('--bilinear-relation',type='bool',default=False)
 parser.add_argument('--coord-semantics',type='bool',default=False)
 parser.add_argument('--infer-num-objects',type='bool',default=False)
+parser.add_argument('--pretrained-resnet',type='bool',default=True)
+parser.add_argument('--loss-curriculum',type='bool',default=False)
+parser.add_argument('--initialization-scope',type='bool',default=False)
+parser.add_argument('--threshold-normalize', type=float, default=1)
+parser.add_argument('--num-resnet-layers', type=int, default=3)
 
 
 
@@ -490,6 +496,7 @@ def visualize_scene_graph():
     model = make_model()
     for i in range(len(validation_iter)):
         feed_dict = next(validation_iter)
+        feed_dict['args'] = args
         new_image_name = feed_dict['image_filename'][0]
         if i==0:
             old_image_name = feed_dict['image_filename'][0]
@@ -513,6 +520,7 @@ def visualize_scene_graph():
         #scene_pil_image = transforms.ToPILImage()(torch.squeeze(image,dim=0))
 
         features = get_scene_graph(model,feed_dict)
+        object_weights = features[3]
 
         
 
@@ -527,7 +535,7 @@ def visualize_scene_graph():
 
             #get the attentions
             #print(attention[0,j,:])
-            object_attention = torch.unsqueeze(torch.unsqueeze((attention[0,j,:]/(torch.max(attention[0,j,:]))).cpu(),dim=0),dim=0)
+            object_attention = torch.unsqueeze(torch.unsqueeze(attention[0,j,:].cpu(),dim=0),dim=0) * torch.exp(object_weights[j].cpu())
 
 
             upsampled_attention = torch.squeeze(nn.functional.interpolate(object_attention,size=(320,480)))

@@ -130,7 +130,8 @@ class CLEVRDefinition(DatasetDefinitionBase):
 
     @staticmethod
     def _is_object_annotation_available(scene):
-        assert len(scene['objects']) > 0
+        if len(scene['objects']) == 0:
+            return False
         if 'mask' in scene['objects'][0]:
             return True
         return False

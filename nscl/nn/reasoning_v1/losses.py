@@ -136,7 +136,7 @@ class QALoss(MultitaskLossBase):
         except Exception as e:
             self.presupposition_semantics = False
 
-        self.bool_threshold = 0.5
+        self.bool_threshold = 0.8
 
     def forward(self, feed_dict, answers, question_index=None, loss_weights=None, accuracy_weights=None):
         """
@@ -185,6 +185,7 @@ class QALoss(MultitaskLossBase):
                 argmax = a.argmax(dim=-1).item()
                 idx2word = {v: k for k, v in word2idx.items()}
                 outputs['answer'].append(idx2word[argmax])
+                ground_truth_word = gt
                 gt = word2idx[gt]
                 if self.presupposition_semantics:
                     #print(p)
@@ -248,6 +249,10 @@ class QALoss(MultitaskLossBase):
             ops = [f['op'] for f in program]
             if 'relate' in ops:
                 new_key = key+'/relate'
+                monitors.setdefault(new_key, []).append((int(gt == argmax), acc_w))
+
+            if question_type=='query':
+                new_key = key+'/'+ground_truth_word
                 monitors.setdefault(new_key, []).append((int(gt == argmax), acc_w))
 
             if self.training and self.add_supervision:

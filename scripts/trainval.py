@@ -43,7 +43,7 @@ parser.add_argument('--configs', default='', type='kv', metavar='CFGS')
 parser.add_argument('--expr', default=None, metavar='DIR', help='experiment name')
 parser.add_argument('--training-target', required=True, choices=['derender', 'parser', 'all'])
 parser.add_argument('--training-visual-modules', default='all', choices=['none', 'object', 'relation', 'all'])
-parser.add_argument('--curriculum', default='all', choices=['off', 'scene', 'program', 'all','restricted','accelerated','intermediate','simple_syntax','extended','restrict_syntax','no_complex_syntax','all_syntax','all_syntax_fast','all_syntax_objects','all_syntax_accelerated','nonrelation_first','nonrelation_first_v2','nonrelation_first_v3','nonrelation_first_v4','nonrelation_first_v5'])
+parser.add_argument('--curriculum', default='all', choices=['off', 'scene', 'program', 'all','restricted','accelerated','intermediate','simple_syntax','extended','restrict_syntax','no_complex_syntax','all_syntax','all_syntax_fast','all_syntax_objects','all_syntax_accelerated','nonrelation_first','nonrelation_first_v2','nonrelation_first_v3','nonrelation_first_v4','nonrelation_first_v5','nonrelation_first_v6'])
 parser.add_argument('--question-transform', default='off', choices=['off', 'basic', 'parserv1-groundtruth', 'parserv1-candidates', 'parserv1-candidates-executed'])
 parser.add_argument('--concept-quantization-json', default=None, metavar='FILE')
 
@@ -137,7 +137,8 @@ parser.add_argument('--infer-num-objects',type='bool',default=False)
 parser.add_argument('--pretrained-resnet',type='bool',default=True)
 parser.add_argument('--loss-curriculum',type='bool',default=False)
 parser.add_argument('--initialization-scope',type='bool',default=False)
-parser.add_argument('--threshold-normalize', type=float, default=None)
+parser.add_argument('--threshold-normalize', type=float, default=1)
+parser.add_argument('--num-resnet-layers', type=int, default=3)
 
 args = parser.parse_args()
 
@@ -176,8 +177,18 @@ desc = load_source(args.desc)
 configs = desc.configs
 args.configs.apply(configs)
 
-if "simple" in args.data_image_root:
+if "simple" in args.data_image_root and "deobjectified" not in args.data_image_root:
     dataset_type = "simple"
+elif "deobjectified_train" in args.data_image_root:
+    dataset_type = "deobjectified"
+elif "deobjectified_simple_questions" in args.data_image_root:
+    dataset_type = "deobjectified_simple"
+elif "supercube_train" in args.data_image_root:
+    dataset_type = "supercube" 
+elif "supercube_simple_questions" in args.data_image_root:
+    dataset_type = "supercube_simple" 
+elif "supercube_morequestions_simple" in args.data_image_root:
+    dataset_type = "supercube_morequestions_simple"
 else:
     dataset_type = "full"
 
@@ -198,7 +209,8 @@ def main():
             ('-resnet_type_' + str(args.resnet_type)) +
             ('-clip_grad_' + str(args.clip_grad))+
             ('-optimizer_'+str(args.optimizer))+
-            ('-weight_decay_'+str(args.weight_decay))
+            ('-weight_decay_'+str(args.weight_decay))+
+            ('-num_resnet_layers_'+str(args.num_resnet_layers))
         )
     ))
 
@@ -281,7 +293,7 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
         if args.optimizer!='adabelief':
             optimizer = optimizer_fn(trainable_parameters, args.lr, weight_decay=args.weight_decay)
         else:
-            optimizer = AdaBelief(trainable_parameters, lr=args.lr, eps=1e-12, betas=(0.9,0.999))
+            optimizer = AdaBelief(trainable_parameters, lr=args.lr, eps=1e-12, betas=(0.9,0.999),weight_decay=args.weight_decay)
 
         if args.adversarial_loss:
             from nscl.nn.reasoning_v1.losses import AdversarialLoss
@@ -555,7 +567,7 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
             (70, 8, 20,remove_ops_nonrelation),
             (80, 9, 22,remove_ops_nonrelation),
             (90, 10, 25,remove_ops_nonrelation),
-            (110, 10, 12,remove_ops_relation,args.lr,args.object_dropout_rate),
+            (110, 10, 12,remove_ops_relation,args.lr/4,args.object_dropout_rate),
             (120, 3, 20,remove_ops_relation),
             (130, 4, 20,remove_ops_relation),
             (140, 5, 20,remove_ops_relation),
@@ -566,7 +578,36 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
             (190, 10, 20,remove_ops_relation),
             (200, 10, 21,remove_ops_relation),
             (210, 10, 22,remove_ops_relation),
-            (120, 10, 25,remove_ops_relation),
+            (220, 10, 25,remove_ops_relation),
+            (230, 10, 25,remove_ops_relation),
+            (220, 10, 25,remove_ops_relation),
+            (240, 10, 25,remove_ops_relation),
+            (250, 10, 25,remove_ops_relation),
+            (260, 10, 25,remove_ops_relation),
+            (1e9, None, None)
+        ]
+    elif args.curriculum=='nonrelation_first_v6':
+        remove_ops_nonrelation = ['relate_attribute_equal','query_attribute_equal','relate','union']
+        remove_ops_includerelation_union = ['relate_attribute_equal','query_attribute_equal']
+        curriculum_strategy = [
+            (0, 3, 4,remove_ops_nonrelation, args.lr, 0),
+            (10, 3, 6,remove_ops_nonrelation),
+            (20, 3, 8,remove_ops_nonrelation),
+            (30, 4, 8,remove_ops_nonrelation),
+            (40, 5, 12,remove_ops_nonrelation),
+            (50, 6, 12,remove_ops_includerelation_union),
+            (60, 6, 16,remove_ops_includerelation_union),
+            (70, 6, 20,remove_ops_includerelation_union),
+            (80, 7, 20,remove_ops_includerelation_union),
+            (90, 8, 25,remove_ops_includerelation_union),
+            (110, 9, 25,remove_ops_includerelation_union),
+            (210, 10, 22,remove_ops_includerelation_union),
+            (220, 10, 25,remove_ops_includerelation_union),
+            (230, 10, 25,remove_ops_includerelation_union),
+            (220, 10, 25,remove_ops_includerelation_union),
+            (240, 10, 25,remove_ops_includerelation_union),
+            (250, 10, 25,remove_ops_includerelation_union),
+            (260, 10, 25,remove_ops_includerelation_union),
             (1e9, None, None)
         ]
     elif args.curriculum=='simple_syntax':
@@ -641,6 +682,8 @@ def main_train(train_dataset, validation_dataset, extra_dataset=None):
                 try:
                     strategy = curriculum_strategy[curriculum_index]
                     loss_threshold = 0.2*((2/3)**curriculum_index) + 0.03
+                    if args.object_dropout_rate<0.01:
+                        loss_threshold = loss_threshold - 0.01
                 except Exception as e:
                     curriculum_index = curriculum_index - 1
                     strategy = curriculum_strategy[curriculum_index]

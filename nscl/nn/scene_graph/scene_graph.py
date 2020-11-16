@@ -826,10 +826,10 @@ class ResidualBlock(nn.Module):
 
 # ResNet
 class ResNet(nn.Module):
-    def __init__(self,in_channels, out_channels,use_fc=False):
+    def __init__(self,in_channels, out_channels,use_fc=False,num_layers=3):
         super(ResNet, self).__init__()
         block = ResidualBlock
-        layers = [3, 2, 2]
+        layers = [num_layers, 2, 2]
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.conv = conv3x3(in_channels, in_channels)
@@ -890,21 +890,14 @@ class TransformerCNNObjectInference(nn.Module):
         self.output_dims = output_dims
         num_heads = 1
 
-        if False:
-            self.attention_net_1 = LocalAttentionNet(self.feature_dim+2,num_heads,padding=2,kernel_size=5)
-            self.attention_net_2 = LocalAttentionNet(self.feature_dim+1+2*num_heads,num_heads, padding=2, kernel_size=5)
-            self.attention_net_3 = LocalAttentionNet(self.feature_dim+1+2*num_heads,num_heads, padding=2, kernel_size=5)
-        elif True:
-            self.attention_net_1 = ResNet(self.feature_dim+2,num_heads)
-            self.attention_net_2 = ResNet(self.feature_dim+1+2*num_heads,num_heads)
-            self.attention_net_3 = ResNet(self.feature_dim+1+2*num_heads,num_heads)
+
+        self.attention_net_1 = ResNet(self.feature_dim+2,num_heads,num_layers=args.num_resnet_layers)
+        self.attention_net_2 = ResNet(self.feature_dim+1+2*num_heads,num_heads,num_layers=args.num_resnet_layers)
+        self.attention_net_3 = ResNet(self.feature_dim+1+2*num_heads,num_heads,num_layers=args.num_resnet_layers)
             
         #self.attention_net_4 = LocalAttentionNet(self.feature_dim+1+2*num_heads,1, padding=2, kernel_size=5)
 
-        if False:
-            self.foreground_detector = LocalAttentionNet(self.feature_dim,1, padding=2, kernel_size=5)
-        elif True:
-            self.foreground_detector = ResNet(self.feature_dim,1)
+        self.foreground_detector = ResNet(self.feature_dim,1)
 
         #self.object_net = Residual(self.feature_dim+3,self.feature_dim,padding=0,kernel_size=1,pool=True)
         
@@ -920,12 +913,8 @@ class TransformerCNNObjectInference(nn.Module):
         #self.reset_parameters()
 
         #self.object_detector_rep = LocalAttentionNet(self.feature_dim,self.feature_dim,padding=1,kernel_size=3)
-        if False:
-            self.object_classifier = ObjectClassifierV2(self.feature_dim+1+2*num_heads)
-        elif True:
-            self.object_classifier = ResNet(self.feature_dim+1+2*num_heads,1,use_fc=True)
-        elif False:
-            self.object_classifier = ObjectClassifier(3)
+        self.object_classifier = ResNet(self.feature_dim+1+2*num_heads,1,use_fc=True, num_layers=args.num_resnet_layers)
+
         #self.object_classifier = nn.Sequential(nn.Linear(self.feature_dim,1),nn.Sigmoid())
 
         self.unit_vector = (torch.ones((self.feature_dim))/torch.sqrt(torch.tensor(self.feature_dim).float())).cuda()
@@ -987,8 +976,8 @@ class TransformerCNNObjectInference(nn.Module):
 
             else:
                 if True:
-                    threshold = -0.6 #assuming that weights are in logspace
-                    epsilon = -10
+                    threshold = -0.2 #assuming that weights are in logspace
+                    epsilon = -20
                     zeros = torch.zeros(object_weights_scene.size()).to(object_weights_scene.device)
                     epsilons = torch.zeros(object_weights_scene.size()).to(object_weights_scene.device) +epsilon
 
@@ -998,6 +987,8 @@ class TransformerCNNObjectInference(nn.Module):
                             object_representations = object_representations.index_fill(0,torch.tensor(j).to(object_representations.device),0)
                             object_pair_representations = object_pair_representations.index_fill(0,torch.tensor(j).to(object_representations.device),0)
                             object_pair_representations = object_pair_representations.index_fill(1,torch.tensor(j).to(object_representations.device),0)
+                else:
+                    pass
 
             #object_pair_representations = self._norm(self.objects_to_pair_representations(object_representations))
             
@@ -1119,12 +1110,10 @@ class TransformerCNNObjectInference(nn.Module):
         object_probs = []
         for attention in attentions:
             scope = sum_scope - F.logsigmoid(-attention)
-            if True:
-                rep = torch.cat((feature_map,foreground_map,attention,scope),dim=1)
-            elif False:
-                rep = torch.cat((foreground_map,attention,scope),dim=1)
+            rep = torch.cat((feature_map,foreground_map,attention,scope),dim=1)
             object_prob = self.object_classifier(rep)
-            object_prob = object_prob.squeeze(-1).squeeze(-1).squeeze(-1)
+            #object_prob = object_prob.squeeze(-1).squeeze(-1).squeeze(-1)
+            object_prob = object_prob.squeeze(-1)
             object_prob = F.logsigmoid(object_prob)
             object_probs.append(object_prob)
 
@@ -1166,10 +1155,7 @@ class TransformerCNNObjectInference(nn.Module):
         #object_weights = []
         #object_detection_representation = self.object_detector_rep(object_features)
         
-        if True:
-            object_weights = self.detect_objects(object_features,foreground_map, attentions,max_num_objects)
-        else:
-            object_weights = []
+        object_weights = self.detect_objects(object_features,foreground_map, attentions,max_num_objects)
 
         for slot in range(max_num_objects):
             
@@ -1184,30 +1170,6 @@ class TransformerCNNObjectInference(nn.Module):
             
             object_representations.append(objects)
 
-            if False:
-                log_foreground_attention = torch.log(foreground_attention)
-                log_attention = torch.log(attention)
-                attention_product = (log_foreground_attention+log_attention).view(batch_size,-1)
-                weight = self.object_detector_foreground(attention_product).squeeze(1)
-                object_weights.append(weight)
-            elif False:
-                objects_normalized = self._norm(objects)
-                weight = self.object_detector(objects_normalized)
-                weight = weight.squeeze(1)
-                object_weights.append(weight)
-            elif False:
-                normalized_attention = attention / torch.sum(attention,dim=(1,2)).view(batch_size,1,1)
-                weight = torch.einsum("bjk,bjk -> b",normalized_attention,foreground_attention)
-                object_weights.append(weight)
-            elif False:
-                current_object_detection_representation = torch.einsum("bjk,bljk -> bl",attention,object_detection_representation)
-                current_object_detection_representation = self._norm(current_object_detection_representation)
-                weight = self.object_classifier(current_object_detection_representation).squeeze(1)
-                object_weights.append(weight)
-
-            elif False:
-                weight, _ = torch.max(attention.view(batch_size,-1),dim=-1)
-                object_weights.append(weight)
 
             
 
@@ -1247,39 +1209,26 @@ class TransformerCNNObjectInference(nn.Module):
         attentions = self.transformer_layer(object_features,foreground_map, attentions, self.attention_net_3,max_num_objects)
         #attentions = self.transformer_layer(object_features,foreground_map, attentions, self.attention_net_4,max_num_objects)
         #print(self.attention_net_4.conv1.weight.data)
-
-        object_weights = self.detect_objects(object_features,foreground_map, attentions,max_num_objects)
-        object_weights = [float(w.squeeze(0)) for w in object_weights]
+        #object_weights = []
+        #object_detection_representation = self.object_detector_rep(object_features)
+        
+        if True:
+            object_weights = self.detect_objects(object_features,foreground_map, attentions,max_num_objects)
+        else:
+            object_weights = []
 
         for slot in range(max_num_objects):
             
             attention = F.sigmoid(attentions[slot])
             attention = attention.squeeze(1)
-
-            attention_list.append(attention)
             #else:
             #    attention = torch.exp(log_scope).squeeze(1)
 
-            
-
-            if False:
-                log_foreground_attention = torch.log(foreground_attention)
-                log_attention = torch.log(attention)
-                attention_product = (log_foreground_attention+log_attention).view(batch_size,-1)
-                weight = self.object_detector_foreground(attention_product).squeeze(1)
-                object_weights.append(weight)
-            elif False:
-                objects_normalized = self._norm(objects)
-                weight = self.object_detector(objects_normalized)
-                weight = weight.squeeze(1)
-                object_weights.append(weight)
-            elif False:
-                normalized_attention = attention / torch.sum(attention,dim=(1,2)).view(batch_size,1,1)
-                weight = torch.einsum("bjk,bjk -> b",normalized_attention,foreground_attention)
-                object_weights.append(weight)
-
+            #attention = attention.squeeze(1)
+            attention_list.append(attention)
             
         print(object_weights)
+
         attention_list = torch.stack(attention_list,dim=1)
         
 
@@ -1320,13 +1269,12 @@ class TransformerCNNObjectInferenceAblateScope(TransformerCNNObjectInference):
         super().__init__(feature_dim, output_dims, downsample_rate, args=args)
 
         num_heads = 1
-        self.attention_net_1 = LocalAttentionNet(self.feature_dim+2,num_heads,padding=2,kernel_size=5)
-        self.attention_net_2 = LocalAttentionNet(self.feature_dim+1+1*num_heads,num_heads, padding=2, kernel_size=5)
-        self.attention_net_3 = LocalAttentionNet(self.feature_dim+1+1*num_heads,num_heads, padding=2, kernel_size=5)
+        self.attention_net_1 = ResNet(self.feature_dim+2,num_heads,num_layers=args.num_resnet_layers)
+        self.attention_net_2 = ResNet(self.feature_dim+2*num_heads,num_heads,num_layers=args.num_resnet_layers)
+        self.attention_net_3 = ResNet(self.feature_dim+2*num_heads,num_heads,num_layers=args.num_resnet_layers)
         
-
         #self.object_detector_rep = LocalAttentionNet(self.feature_dim,self.feature_dim,padding=1,kernel_size=3)
-        self.object_classifier = ObjectClassifier(self.feature_dim+1+1*num_heads)
+        self.object_classifier = ResNet(self.feature_dim+2*num_heads,1,use_fc=True, num_layers=args.num_resnet_layers)
         #self.object_classifier = nn.Sequential(nn.Linear(self.feature_dim,1),nn.Sigmoid())
 
     def transformer_layer(self,feature_map,foreground_map, attentions,attention_net, max_num_objects):
@@ -1335,16 +1283,10 @@ class TransformerCNNObjectInferenceAblateScope(TransformerCNNObjectInference):
         foreground_map = F.logsigmoid(foreground_map)
 
         batch_size = feature_map.size(0)
-        sum_scope = torch.zeros(batch_size,1,1,1).to(feature_map.device)
 
-        for i in range(len(attentions)):
-            attention = attentions[i]
-            log_probs = F.logsigmoid(-attention)
-            sum_scope = sum_scope + log_probs
 
         new_attentions = []
         for attention in attentions:
-            scope = sum_scope - F.logsigmoid(-attention)
             rep = torch.cat((feature_map,foreground_map,attention),dim=1)
             new_attention = attention_net(rep)
             new_attentions.append(new_attention)
@@ -1358,24 +1300,20 @@ class TransformerCNNObjectInferenceAblateScope(TransformerCNNObjectInference):
         foreground_map = F.logsigmoid(foreground_map)
 
         batch_size = feature_map.size(0)
-        sum_scope = torch.zeros(batch_size,1,1,1).to(feature_map.device)
 
-        for i in range(len(attentions)):
-            attention = attentions[i]
-            log_probs = F.logsigmoid(-attention)
-            sum_scope = sum_scope + log_probs
 
         object_probs = []
         for attention in attentions:
-            scope = sum_scope - F.logsigmoid(-attention)
             rep = torch.cat((feature_map,foreground_map,attention),dim=1)
+
             object_prob = self.object_classifier(rep)
-            object_prob = object_prob.squeeze(-1).squeeze(-1).squeeze(-1)
-            object_prob = torch.sigmoid(object_prob)
+            #object_prob = object_prob.squeeze(-1).squeeze(-1).squeeze(-1)
+            object_prob = object_prob.squeeze(-1)
+            object_prob = F.logsigmoid(object_prob)
             object_probs.append(object_prob)
 
         return object_probs
-        
+
 
 class MonetLiteSceneGraph(nn.Module):
     def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True, args=None,img_input_dim=(16,24)):
