@@ -1315,6 +1315,173 @@ class TransformerCNNObjectInferenceAblateScope(TransformerCNNObjectInference):
         return object_probs
 
 
+class TransformerCNNObjectInferenceSequential(TransformerCNNObjectInference):
+    def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True, args=None,img_input_dim=(16,24)):
+        super().__init__(feature_dim, output_dims, downsample_rate, args=args)
+
+
+    def transformer_layer(self,feature_map,foreground_map, attentions,attention_net, max_num_objects):
+        max_len = max_num_objects
+
+        foreground_map = F.logsigmoid(foreground_map)
+
+        batch_size = feature_map.size(0)
+        sum_scope = torch.zeros(batch_size,1,foreground_map.size(2),foreground_map.size(3)).to(feature_map.device)
+
+        
+
+        new_attentions = []
+        for i in range(len(attentions)):
+            attention = attentions[i]
+            log_probs = F.logsigmoid(-attention)
+            rep = torch.cat((feature_map,foreground_map,attention,sum_scope),dim=1)
+            sum_scope = sum_scope + log_probs
+            new_attention = attention_net(rep)
+            new_attentions.append(new_attention)
+
+        return new_attentions
+
+
+    def detect_objects(self,feature_map,foreground_map, attentions, max_num_objects):
+        max_len = max_num_objects
+
+        foreground_map = F.logsigmoid(foreground_map)
+
+        batch_size = feature_map.size(0)
+        sum_scope = torch.zeros(batch_size,1,foreground_map.size(2),foreground_map.size(3)).to(feature_map.device)
+
+       
+
+        object_probs = []
+        for i in range(len(attentions)):
+            attention = attentions[i]
+            log_probs = F.logsigmoid(-attention)
+            rep = torch.cat((feature_map,foreground_map,attention,sum_scope),dim=1)
+            sum_scope = sum_scope + log_probs
+            object_prob = self.object_classifier(rep)
+            #object_prob = object_prob.squeeze(-1).squeeze(-1).squeeze(-1)
+            object_prob = object_prob.squeeze(-1)
+            object_prob = F.logsigmoid(object_prob)
+            object_probs.append(object_prob)
+
+        return object_probs
+
+class TransformerCNNObjectInferenceRecurrent(TransformerCNNObjectInference):
+    def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True, args=None,img_input_dim=(16,24)):
+        super().__init__(feature_dim, output_dims, downsample_rate, args=args)
+
+
+    def transformer_layer(self,feature_map,foreground_map, attentions,attention_net, max_num_objects):
+        max_len = max_num_objects
+
+        foreground_map = F.logsigmoid(foreground_map)
+
+        batch_size = feature_map.size(0)
+        sum_scope = torch.zeros(batch_size,1,foreground_map.size(2),foreground_map.size(3)).to(feature_map.device)
+
+        
+
+        new_attentions = []
+        for i in range(len(attentions)):
+            attention = attentions[i]
+            rep = torch.cat((feature_map,foreground_map,attention,sum_scope),dim=1)
+            new_attention = attention_net(rep)
+            log_probs = F.logsigmoid(-new_attention)
+            sum_scope = sum_scope + log_probs
+            new_attentions.append(new_attention)
+
+        return new_attentions
+
+
+    def detect_objects(self,feature_map,foreground_map, attentions, max_num_objects):
+        max_len = max_num_objects
+
+        foreground_map = F.logsigmoid(foreground_map)
+
+        batch_size = feature_map.size(0)
+        sum_scope = torch.zeros(batch_size,1,foreground_map.size(2),foreground_map.size(3)).to(feature_map.device)
+
+       
+
+        object_probs = []
+        for i in range(len(attentions)):
+            attention = attentions[i]
+            log_probs = F.logsigmoid(-attention)
+            rep = torch.cat((feature_map,foreground_map,attention,sum_scope),dim=1)
+            sum_scope = sum_scope + log_probs
+            object_prob = self.object_classifier(rep)
+            #object_prob = object_prob.squeeze(-1).squeeze(-1).squeeze(-1)
+            object_prob = object_prob.squeeze(-1)
+            object_prob = F.logsigmoid(object_prob)
+            object_probs.append(object_prob)
+
+        return object_probs
+
+
+
+
+class TransformerCNNObjectInferenceAblateInitialization(TransformerCNNObjectInference):
+    def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True, args=None,img_input_dim=(16,24)):
+        super().__init__(feature_dim, output_dims, downsample_rate, args=args)
+
+    def sample_init(self,max_length):
+        x_pos = []
+        y_pos = []
+        
+        dist = 4
+        x_pos.append(random.randint(0,16))
+        y_pos.append(random.randint(0,24))
+        for i in range(max_length-1):
+            condition = lambda a,b: False
+            while not all(map(condition,x_pos,y_pos)):
+                x = random.randint(0,16)
+                y = random.randint(0,24)
+                condition = lambda a,b: (x-a)^2+(y-b)^2 <= dist^2
+            x_pos.append(x)
+            y_pos.append(y)
+
+        return x_pos, y_pos
+
+
+    def local_max(self,attention_map,max_num_objects):
+        batch_size = attention_map.size(0)
+        k = max_num_objects
+
+
+        m_x, m_y = torch.meshgrid(torch.arange(16),torch.arange(24))
+        m_x = m_x.to(attention_map.device).float()
+        m_y = m_y.to(attention_map.device).float()
+        
+
+        
+
+        #print(objects_length)
+        
+        
+        sigma = 2
+
+        indicator_maps = []
+
+        x_pos_all, y_pos_all = self.sample_init(k)
+        #print(top_k_indices)
+        for i in range(k):
+            #print(i)
+            x_pos = torch.tensor(x_pos_all[i], dtype=torch.float).expand(batch_size,1,1,1).to(attention_map.device)
+            y_pos = torch.tensor(y_pos_all[i], dtype=torch.float).expand(batch_size,1,1,1).to(attention_map.device)
+
+            #print(x_pos)
+
+            Fx = -torch.pow(x_pos - m_x, 2) / sigma 
+            Fy = -torch.pow(y_pos - m_y, 2) / sigma
+
+            probs = Fx+Fy
+            probs = probs - probs.logsumexp(dim=(2,3),keepdim=True)
+
+            indicator_maps.append(probs)
+
+        return indicator_maps
+
+        
 class MonetLiteSceneGraph(nn.Module):
     def __init__(self, feature_dim, output_dims, downsample_rate, object_supervision=False,concatenative_pair_representation=True, args=None,img_input_dim=(16,24)):
         super().__init__()

@@ -492,7 +492,7 @@ def test_scene_graph(model,feed_dict):
 def visualize_scene_graph():
     data = []
 
-    validation_iter, _ = get_data(batch_size=1,dataset_size=200)
+    validation_iter, _ = get_data(batch_size=1,dataset_size=400)
     model = make_model()
     for i in range(len(validation_iter)):
         feed_dict = next(validation_iter)
@@ -546,8 +546,8 @@ def visualize_scene_graph():
             if j==0:
                 image_filtered = upsampled_attention*torch_image 
             else:
-                #image_filtered = image_filtered + upsampled_attention*torch_image 
-                image_filtered = upsampled_attention*torch_image 
+                image_filtered = torch.max(image_filtered, upsampled_attention*torch_image)
+                #image_filtered = upsampled_attention*torch_image 
 
             #image_filtered = torch_image
         

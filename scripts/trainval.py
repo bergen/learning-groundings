@@ -101,7 +101,9 @@ parser.add_argument('--attention-type', default='cnn', choices=['cnn', 'naive-rn
                                                                 'transformer-cnn',
                                                                 'transformer-cnn-object-inference',
                                                                 'transformer-cnn-object-inference-ablate-scope',
-                                                                'transformer-cnn-object-inference-ablate-initialization'])
+                                                                'transformer-cnn-object-inference-ablate-initialization',
+                                                                'transformer-cnn-object-inference-sequential',
+                                                                'transformer-cnn-object-inference-recurrent'])
 
 parser.add_argument('--attention-loss', type='bool', default=False)
 parser.add_argument('--anneal-rnn', type='bool', default=False)
@@ -177,9 +179,8 @@ desc = load_source(args.desc)
 configs = desc.configs
 args.configs.apply(configs)
 
-if "simple" in args.data_image_root and "deobjectified" not in args.data_image_root:
-    dataset_type = "simple"
-elif "deobjectified_train" in args.data_image_root:
+
+if "deobjectified_train" in args.data_image_root:
     dataset_type = "deobjectified"
 elif "deobjectified_simple_questions" in args.data_image_root:
     dataset_type = "deobjectified_simple"
@@ -189,6 +190,10 @@ elif "supercube_simple_questions" in args.data_image_root:
     dataset_type = "supercube_simple" 
 elif "supercube_morequestions_simple" in args.data_image_root:
     dataset_type = "supercube_morequestions_simple"
+elif "conditional_simple_questions" in args.data_image_root:
+    dataset_type = "conditional_simple_questions"
+elif "simple" in args.data_image_root:
+    dataset_type = "simple"
 else:
     dataset_type = "full"
 

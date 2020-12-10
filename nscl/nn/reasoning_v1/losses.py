@@ -136,7 +136,7 @@ class QALoss(MultitaskLossBase):
         except Exception as e:
             self.presupposition_semantics = False
 
-        self.bool_threshold = 0.8
+        self.bool_threshold = 0.2
 
     def forward(self, feed_dict, answers, question_index=None, loss_weights=None, accuracy_weights=None):
         """
@@ -250,6 +250,11 @@ class QALoss(MultitaskLossBase):
             if 'relate' in ops:
                 new_key = key+'/relate'
                 monitors.setdefault(new_key, []).append((int(gt == argmax), acc_w))
+                monitors.setdefault('acc/qa'+'/relate', []).append((int(gt == argmax), acc_w))
+            else:
+                new_key = key+'non_relate'
+                monitors.setdefault(new_key, []).append((int(gt == argmax), acc_w))
+                monitors.setdefault('acc/qa'+'/non_relate', []).append((int(gt == argmax), acc_w))
 
             if question_type=='query':
                 new_key = key+'/'+ground_truth_word

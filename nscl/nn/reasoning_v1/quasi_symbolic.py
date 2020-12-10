@@ -115,21 +115,24 @@ class ProgramExecutorContext(nn.Module):
         #mask is a num_concept_groups x num_objects x num_objects tensor. it contains, for each object pair, the log probability the object pair satisfies a certain relational concept. 
         #the first dimension indexes the specific concept being used (e.g. 'front')
 
-        if self.relate_rescale or self.logit_semantics:
-            selected = torch.exp(selected)
-            mask = (mask * selected.unsqueeze(-1).unsqueeze(0))
-            
-            mask = torch.sum(mask,dim=-2)
-        elif self.relate_max:
-            val, index = torch.max(selected,dim=0)
-            mask = mask[:,index,:].squeeze(1)
-        else:
-            mask = (mask + selected.unsqueeze(-1).unsqueeze(0))
+        mask = (mask + selected.unsqueeze(-1).unsqueeze(0))
 
-            mask = torch.logsumexp(mask,dim=-2) #need to verify that this logsumexp is over correct dimension
+        mask = torch.logsumexp(mask,dim=-2) #need to verify that this logsumexp is over correct dimension
 
-            if self.args.infer_num_objects:
-                mask = torch.min(mask,self.features[3])
+        if self.args.infer_num_objects:
+            mask = torch.min(mask,self.features[3])
+
+
+        return mask[group]
+
+
+    def inference_relate(self, group, concept_groups):
+        #concept groups is a list of relational concepts (e.g. ['front','left','right'])
+        #group is an int, which indicates which concept from concept_groups is being used
+
+        mask = self._get_concept_groups_masks(concept_groups, 2)
+        #mask is a num_concept_groups x num_objects x num_objects tensor. it contains, for each object pair, the log probability the object pair satisfies a certain relational concept. 
+        #the first dimension indexes the specific concept being used (e.g. 'front')
 
 
         return mask[group]
@@ -151,6 +154,8 @@ class ProgramExecutorContext(nn.Module):
         else:
             mask = (mask + selected.unsqueeze(-1).unsqueeze(0))
             mask = torch.logsumexp(mask,dim=-2) #need to verify that this logsumexp is over correct dimension
+            if self.args.infer_num_objects:
+                mask = torch.min(mask,self.features[3])
 
         if torch.is_tensor(group):
             return (mask * group.unsqueeze(1)).sum(dim=0)
@@ -190,7 +195,7 @@ class ProgramExecutorContext(nn.Module):
         if self.training:
             return torch.exp(selected).sum(dim=-1)
         else:
-            return (selected > math.log(0.8)).float().sum()
+            return (selected > math.log(0.2)).float().sum()
             #return torch.exp(selected).sum(dim=-1).round()
 
     _count_margin = -0.25
@@ -264,6 +269,7 @@ class ProgramExecutorContext(nn.Module):
 
         mask = torch.logsumexp((mask + selected1.unsqueeze(-1).unsqueeze(0)),dim=-2)
         mask = torch.logsumexp((mask + selected2.unsqueeze(0)),dim=-1)
+        
         if torch.is_tensor(group):
             return (mask * group.unsqueeze(1)).sum(dim=0)
         return mask[group]
@@ -443,4 +449,9 @@ class DifferentiableReasoning(nn.Module):
         m = int(torch.argmax(output))
         reverse_d = dict([(d[k],k) for k in d.keys()])
         return reverse_d[m]
+
+    def inference_relate(self, features, relation,args):
+        ctx = ProgramExecutorContext(self.embedding_attribute, self.embedding_relation, features, parameter_resolution=self.parameter_resolution, training=self.training, args=self.args)
+        output = ctx.inference_relate(0,[relation])
+        return output
 
