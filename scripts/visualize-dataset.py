@@ -56,6 +56,57 @@ parser.add_argument('--desc', type='checked_file', metavar='FILE')
 parser.add_argument('--configs', default='', type='kv', metavar='CFGS')
 parser.add_argument('--resume', type='checked_file', default=None, metavar='FILE', help='path to latest checkpoint (default: none)')
 
+
+parser.add_argument('--attention-type', default='cnn', choices=['cnn', 'naive-rnn', 'naive-rnn-batched',
+                                                                'naive-rnn-global-batched','structured-rnn-batched',
+                                                                'max-rnn-batched','low-dim-rnn-batched','monet',
+                                                                'scene-graph-object-supervised',
+                                                                'structured-subtractive-rnn-batched',
+                                                                'transformer',
+                                                                'monet-lite',
+                                                                'transformer-cnn',
+                                                                'transformer-cnn-object-inference'])
+
+parser.add_argument('--attention-loss', type='bool', default=False)
+parser.add_argument('--anneal-rnn', type='bool', default=False)
+parser.add_argument('--adversarial-loss', type='bool', default=False)
+parser.add_argument('--adversarial-lr', type=float, default=0.0002, metavar='N', help='initial learning rate')
+parser.add_argument('--presupposition-semantics', type='bool', default=False)
+parser.add_argument('--mutual-exclusive', type='bool', default=True)
+parser.add_argument('--subtractive-rnn', type='bool', default=False)
+parser.add_argument('--subtract-from-scene', type='bool', default=True)
+parser.add_argument('--rnn-type', default='lstm', choices=['lstm','gru'])
+parser.add_argument('--full-recurrence', type='bool', default=True)
+parser.add_argument('--lr-cliff-epoch', type=int, default=200) #this is the epoch at which the lr will fall by factor of 0.1
+parser.add_argument('--optimizer', default='adamw', choices=['adamw', 'rmsprop','adabelief'])
+parser.add_argument('--fine-tune-resnet-epoch', type=int, default=100)
+parser.add_argument('--fine-tune-semantics-epoch', type=int, default=100)
+parser.add_argument('--restrict-finetuning', type='bool', default=True)
+parser.add_argument('--resnet-type', default='resnet34', choices=['resnet34', 'resnet101','cmc_resnet','simclr_resnet','resnet34_pytorch'])
+parser.add_argument('--transformer-use-queries', type='bool', default=False)
+parser.add_argument('--filter-ops', type='bool', default=False)
+parser.add_argument('--filter-relate', type='bool', default=False)
+parser.add_argument('--filter-disjunction', type='bool', default=False)
+parser.add_argument('--filter-relate-epoch', type=int, default=0)
+parser.add_argument('--object-dropout', type='bool', default=False)
+parser.add_argument('--object-dropout-rate', type=float, default=0.03)
+parser.add_argument('--normalize-objects',type='bool',default=True)
+parser.add_argument('--filter-additive',type='bool',default=False)
+parser.add_argument('--relate-rescale',type='bool',default=False)
+parser.add_argument('--relate-max',type='bool',default=False)
+parser.add_argument('--logit-semantics',type='bool',default=False)
+parser.add_argument('--bilinear-relation',type='bool',default=False)
+parser.add_argument('--coord-semantics',type='bool',default=False)
+parser.add_argument('--infer-num-objects',type='bool',default=False)
+parser.add_argument('--pretrained-resnet',type='bool',default=True)
+parser.add_argument('--loss-curriculum',type='bool',default=False)
+parser.add_argument('--initialization-scope',type='bool',default=False)
+parser.add_argument('--threshold-normalize', type=float, default=1)
+parser.add_argument('--num-resnet-layers', type=int, default=3)
+
+
+
+
 args = parser.parse_args()
 
 args.data_image_root = osp.join(args.data_dir, 'images')
@@ -130,8 +181,8 @@ def get_data(batch_size=1, dataset_size=500):
 
 
 def get_attention(model,feed_dict):
-    scene_representation = model.resnet(feed_dict['image'].cuda())
-    attention = model.scene_graph.compute_attention(scene_representation,feed_dict['objects'].cuda(), feed_dict['objects_length'])
+    feed_dict['image'] = feed_dict['image'].cuda()
+    attention = model.get_attention(feed_dict,visualize_foreground=False)
     return attention
 
 def model_forward(model,feed_dict):
@@ -185,79 +236,62 @@ def get_validation_results(filename):
     
     write_to_csv(results, filename)
 
+
 def get_wrong_ids():
     wrong_ids = load_csv('/home/lbergen/NeuralDRS/NSCL-PyTorch-Release/data_vis_dir/simplest_wrong.csv')
     return [int(r[0]) for r in wrong_ids]
 
 def visualize_sum_attentions(filter_for_ids=False):
-    train_iter, dataset_size = get_data(dataset_size=17926)
-
-    if filter_for_ids:
-        ids = get_wrong_ids()
-
-
-    model = make_model()
-    
     processed = []
 
-    
-
-    for i in range(dataset_size):
-        try:
-            feed_dict = next(train_iter)
-        except:
-            break
-
-        if filter_for_ids:
-            if i not in ids:
-                continue
-
-        d = {}
-
-        #prev_image_name = feed_dict['image_filename'][0]
-        
+    validation_iter, _ = get_data(batch_size=1,dataset_size=500)
+    model = make_model()
+    for i in range(len(validation_iter)):
+        feed_dict = next(validation_iter)
         new_image_name = feed_dict['image_filename'][0]
-        print(i)
-        print(new_image_name)
+        if i==0:
+            old_image_name = feed_dict['image_filename'][0]
+        elif old_image_name == new_image_name:
+            continue
+
+        #test_scene_graph(model,feed_dict)
+
+        old_image_name = new_image_name
+
+        attention = get_attention(model, feed_dict) 
+        #model_forward(model, feed_dict)
+        image = feed_dict['image']
+        print(feed_dict['image_filename'])
+
+        image_filename = osp.join(args.data_image_root, new_image_name)
+        pil_image = Image.open(image_filename)
+        
+        torch_image = transforms.ToTensor()(pil_image)
+        
+        #scene_pil_image = transforms.ToPILImage()(torch.squeeze(image,dim=0))
+
+
+        
+        d={}
         
         #if prev_image_name == new_image_name:
         #    continue
 
-        attention = get_attention(model, feed_dict) 
-        outputs = model_forward(model, feed_dict)
-
-        d['question'] = feed_dict['question_raw']
-        d['guessed_answer'] = outputs['answer'][0]
-        d['correct_answer'] = feed_dict['answer'][0]
-        d['correct_answer'] = normalize_answer(d['correct_answer'])
-        
-
-        d['correct'] = (d['correct_answer']==d['guessed_answer'])
-        
-        d['relational'] = check_if_relational(feed_dict)
-
-
-        image = feed_dict['image']
-
-
-        image_filename = osp.join(args.data_image_root, new_image_name)
-        pil_image = Image.open(image_filename)
-        torch_image = transforms.ToTensor()(pil_image)
-        
         #scene_pil_image = transforms.ToPILImage()(torch.squeeze(image,dim=0))
         for j in range(feed_dict['objects_length']):
-            object_attention = torch.unsqueeze(torch.unsqueeze(attention[j,:].cpu(),dim=0),dim=0)
+            object_attention = torch.unsqueeze(torch.unsqueeze(attention[0,j,:].cpu(),dim=0),dim=0)
             upsampled_attention = torch.squeeze(nn.functional.interpolate(object_attention,size=(320,480)))
             
             if j==0:
-                total_attention = upsampled_attention
+                total_attention = upsampled_attention*upsampled_attention
             else:
-                total_attention +=upsampled_attention
+                total_attention +=upsampled_attention*upsampled_attention
 
             #image_filtered = torch_image*upsampled_attention
 
         mask=torch.zeros(total_attention.size())
-        image_filtered = torch.where(total_attention>0.1,mask,torch_image)
+        image_filtered = total_attention*torch_image
+        #image_filtered = torch.where(total_attention>0.1,mask,torch_image)
         #attention_image = transforms.ToPILImage()(upsampled_attention)
         #pil_image.paste(attention_image,(0,0))
         object_image = transforms.ToPILImage()(image_filtered)
@@ -304,7 +338,7 @@ def visualize_attention_per_object():
             #image_filtered = torch_image*upsampled_attention
 
             
-            image_filtered = torch.where(upsampled_attention>0.1,mask,torch_image)
+            image_filtered = torch.where(upsampled_attention>0.2,mask,torch_image)
             #attention_image = transforms.ToPILImage()(upsampled_attention)
             #pil_image.paste(attention_image,(0,0))
             object_image = transforms.ToPILImage()(image_filtered)
@@ -338,37 +372,19 @@ def save_images(processed):
     # else:
     with vis.table('Visualize', [
         HTMLTableColumnDesc('scene', 'Scene', 'figure', {'width': '80%'},None),
-        HTMLTableColumnDesc('object', 'Attention', 'figure', {'width': '80%'},None),
-        HTMLTableColumnDesc('accurate', 'Accuracy', 'text', css=None,td_css={'width': '30%'}),
-        HTMLTableColumnDesc('qa', 'QA', 'text', css=None,td_css={'width': '30%'}),
+        HTMLTableColumnDesc('object', 'Attention', 'figure', {'width': '80%'},None)
     ]):
         for i in tqdm(indices):
                 d = processed[i]
                 scene_image = d['original_image']
                 object_image = d['attention_image']
-                question = d['question']
-                guessed_answer = d['guessed_answer']
-                true_answer = d['correct_answer']
-                model_correct = d['correct']
-                relational = d['relational']
-
                 scene_fig, ax = vis_bboxes(scene_image, [], 'object', add_text=False)
                 object_fig, ax = vis_bboxes(object_image, [], 'object', add_text=False)
 
 
-                accurate_string = """
-                    <p><b>Model is correct</b>: {}</p>
-                    <p><b>Question is relational</b>: {}</p>
-                """.format(model_correct, relational)
+                
 
-
-                QA_string = """
-                    <p><b>Q</b>: {}</p>
-                    <p><b>Guessed answer</b>: {}</p>
-                    <p><b>True answer</b>: {}</p>
-                """.format(question, guessed_answer, true_answer)
-
-                vis.row(scene=scene_fig, object=object_fig,accurate=accurate_string, qa=QA_string)
+                vis.row(scene=scene_fig, object=object_fig)
                 plt.close()
     vis.end_html()
 
@@ -426,7 +442,170 @@ def main():
     logger.info('Happy Holiday! You can find your result at "http://monday.csail.mit.edu/xiuming' + osp.realpath(args.data_vis_dir) + '".')
 
 
+def view_feed_dict():
+    validation_iter, _ = get_data(batch_size=1,dataset_size=20)
+    model = make_model()
+
+    for i in range(len(validation_iter)):
+        feed_dict = next(validation_iter)
+        feed_dict['image'] = feed_dict['image'].cuda()
+        sng = model.get_sng(feed_dict)
+        #outputs = model_forward(model,feed_dict)
+        model.reasoning.inference_query(sng)
+
+def get_object_graph(model,features,one_hot):
+    d = {}
+
+    q_color = ['color']
+    q_size = ['size']
+    q_material = ['material']
+    q_shape = ['shape']
+
+    a_color = model.reasoning.inference_query(features,one_hot,q_color,args)
+    a_size = model.reasoning.inference_query(features,one_hot,q_size,args)
+    a_material = model.reasoning.inference_query(features,one_hot,q_material,args)
+    a_shape = model.reasoning.inference_query(features,one_hot,q_shape,args)
+
+    d['color'] = a_color
+    d['size'] = a_size
+    d['material'] = a_material
+    d['shape'] = a_shape
+
+    return d
+
+def get_scene_graph(model,feed_dict):
+    feed_dict['image'] = feed_dict['image'].cuda()
+    sng = model.get_sng(feed_dict)
+    return sng[0]
+
+def test_scene_graph(model,feed_dict):
+    feed_dict['image'] = feed_dict['image'].cuda()
+    batched_sng = model.get_sng(feed_dict)
+
+    scene_representation = model.resnet(feed_dict['image'])
+    unbatched_sng = model.scene_graph.test_batching(scene_representation,feed_dict['objects'].cuda(), feed_dict['objects_length'])
+
+    print(batched_sng)
+    print(unbatched_sng)
+    
+
+def visualize_scene_graph():
+    data = []
+
+    validation_iter, _ = get_data(batch_size=1,dataset_size=400)
+    model = make_model()
+    for i in range(len(validation_iter)):
+        feed_dict = next(validation_iter)
+        feed_dict['args'] = args
+        new_image_name = feed_dict['image_filename'][0]
+        if i==0:
+            old_image_name = feed_dict['image_filename'][0]
+        elif old_image_name == new_image_name:
+            continue
+
+        #test_scene_graph(model,feed_dict)
+
+        old_image_name = new_image_name
+
+        attention = get_attention(model, feed_dict) 
+        #model_forward(model, feed_dict)
+        image = feed_dict['image']
+        print(feed_dict['image_filename'])
+
+        image_filename = osp.join(args.data_image_root, new_image_name)
+        pil_image = Image.open(image_filename)
+        
+        torch_image = transforms.ToTensor()(pil_image)
+        
+        #scene_pil_image = transforms.ToPILImage()(torch.squeeze(image,dim=0))
+
+        features = get_scene_graph(model,feed_dict)
+        object_weights = features[3]
+
+        
+
+        num_objects = features[1].size(0)
+
+        for j in range(num_objects):
+            #get the graph for the current object
+            one_hot = -100*torch.ones(num_objects, dtype=torch.float, device=features[1].device)
+            one_hot[j] = 0
+            object_graph = get_object_graph(model,features,one_hot)
+
+
+            #get the attentions
+            #print(attention[0,j,:])
+            object_attention = torch.unsqueeze(torch.unsqueeze(attention[0,j,:].cpu(),dim=0),dim=0) * torch.exp(object_weights[j].cpu())
+
+
+            upsampled_attention = torch.squeeze(nn.functional.interpolate(object_attention,size=(320,480)))
+            #print(upsampled_attention)
+            
+            mask=torch.zeros(upsampled_attention.size())
+            #image_filtered = torch.where(upsampled_attention>0.95,mask,torch_image)
+            if j==0:
+                image_filtered = upsampled_attention*torch_image 
+            else:
+                image_filtered = torch.max(image_filtered, upsampled_attention*torch_image)
+                #image_filtered = upsampled_attention*torch_image 
+
+            #image_filtered = torch_image
+        
+            object_image = transforms.ToPILImage()(image_filtered)
+
+
+            d = {}
+            d['image'] = pil_image
+            d['object_attention'] = object_image
+            d['object_graph'] = object_graph
+            data.append(d)
+
+
+        old_image_name = new_image_name
+
+    save_scene_graph(data)
+
+
+def save_scene_graph(processed):
+    #processed is a dict
+    vis = HTMLTableVisualizer(args.data_vis_dir, 'Dataset: ' + args.dataset.upper() + "_scenegraph")
+    vis.begin_html()
+
+    indices = len(processed)
+
+    with vis.table('Visualize', [
+        HTMLTableColumnDesc('scene', 'Scene', 'figure', {'width': '80%'},None),
+        HTMLTableColumnDesc('attention', 'Attention', 'figure', {'width': '80%'},None),
+        HTMLTableColumnDesc('graph', 'Object representation', 'text', css=None,td_css={'width': '30%'}),
+    ]):
+        for i in tqdm(indices):
+                d = processed[i]
+                scene_image = d['image']
+                attention_image = d['object_attention']
+                graph = d['object_graph']
+
+
+                scene_fig, ax = vis_bboxes(scene_image, [], 'object', add_text=False)
+
+                attention_fig, ax = vis_bboxes(attention_image, [], 'object', add_text=False)
+
+
+                graph_string = """
+                    <p><b>Color</b>: {}</p>
+                    <p><b>Material</b>: {}</p>
+                    <p><b>Size</b>: {}</p>
+                    <p><b>Shape</b>: {}</p>
+                """.format(graph['color'], graph['material'], graph['size'], graph['shape'])
+
+
+
+                vis.row(scene=scene_fig,attention=attention_fig,graph=graph_string)
+                plt.close()
+    vis.end_html()
+
+
 if __name__ == '__main__':
-    visualize_sum_attentions(filter_for_ids=True)
+    #visualize_sum_attentions(filter_for_ids=False)
     #get_validation_results('validation_results.csv')
+    visualize_scene_graph()
 

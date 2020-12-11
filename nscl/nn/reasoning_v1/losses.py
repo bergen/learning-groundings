@@ -9,8 +9,11 @@
 # Distributed under terms of the MIT license.
 
 import os
+import math
 import torch
 import torch.nn.functional as F
+
+import numpy as np
 
 from jacinle.utils.enum import JacEnum
 from nscl.nn.losses import MultitaskLossBase
@@ -124,9 +127,16 @@ class SceneParsingLoss(MultitaskLossBase):
 
 
 class QALoss(MultitaskLossBase):
-    def __init__(self, add_supervision):
+    def __init__(self, add_supervision,args=None):
         super().__init__()
         self.add_supervision = add_supervision
+
+        try:
+            self.presupposition_semantics = args.presupposition_semantics
+        except Exception as e:
+            self.presupposition_semantics = False
+
+        self.bool_threshold = 0.2
 
     def forward(self, feed_dict, answers, question_index=None, loss_weights=None, accuracy_weights=None):
         """
@@ -146,6 +156,7 @@ class QALoss(MultitaskLossBase):
             return monitors, outputs
 
         for i, (query_type, a) in enumerate(answers):
+
             j = i if question_index is None else question_index[i]
             loss_w = loss_weights[i] if loss_weights is not None else 1
             acc_w = accuracy_weights[i] if accuracy_weights is not None else 1
@@ -154,6 +165,7 @@ class QALoss(MultitaskLossBase):
             response_query_type = gdef.qtype2atype_dict[query_type]
 
             question_type = feed_dict['question_type'][j]
+
             response_question_type = gdef.qtype2atype_dict[question_type]
 
             if response_question_type != response_query_type:
@@ -167,15 +179,34 @@ class QALoss(MultitaskLossBase):
                     monitors.setdefault('loss/qa', []).append((l, loss_w))
                 continue
 
-            if response_query_type == 'word':
+
+            if question_type=='query':
+                a, p, word2idx = a
+                argmax = a.argmax(dim=-1).item()
+                idx2word = {v: k for k, v in word2idx.items()}
+                outputs['answer'].append(idx2word[argmax])
+                ground_truth_word = gt
+                gt = word2idx[gt]
+                if self.presupposition_semantics:
+                    #print(p)
+                    loss = lambda x, y, z=p: (self._xent_loss(x,y) - z)
+                    #loss = lambda x, y: self._xent_loss(x,y)
+                else:
+                    loss = lambda x, y: self._xent_loss(x,y) 
+            elif response_query_type == 'word':
                 a, word2idx = a
                 argmax = a.argmax(dim=-1).item()
                 idx2word = {v: k for k, v in word2idx.items()}
                 outputs['answer'].append(idx2word[argmax])
                 gt = word2idx[gt]
                 loss = self._xent_loss
+            elif question_type=='exist':
+                argmax = int((a > math.log(self.bool_threshold)).item())
+                outputs['answer'].append(argmax)
+                gt = int(gt)
+                loss = self._bce_loss
             elif response_query_type == 'bool':
-                argmax = int((a > 0).item())
+                argmax = int((a > math.log(0.5)).item())
                 outputs['answer'].append(argmax)
                 gt = int(gt)
                 loss = self._bce_loss
@@ -193,6 +224,41 @@ class QALoss(MultitaskLossBase):
             key = 'acc/qa/' + query_type
             monitors.setdefault(key, []).append((int(gt == argmax), acc_w))
             monitors.setdefault('acc/qa', []).append((int(gt == argmax), acc_w))
+
+            if query_type=='exist':
+                if gt==1:
+                    new_key = key+'/pos'
+                    monitors.setdefault(new_key, []).append((int(gt == argmax), acc_w))
+                else:
+                    new_key = key+'/neg'
+                    monitors.setdefault(new_key, []).append((int(gt == argmax), acc_w))
+            elif query_type=='count':
+                new_key = key+'/predicted_count_less'
+                if gt>argmax:
+                    monitors.setdefault(new_key, []).append((1, acc_w))
+                else:
+                    monitors.setdefault(new_key, []).append((0, acc_w))
+
+                new_key = key+'/predicted_count_greater'
+                if gt<argmax:
+                    monitors.setdefault(new_key, []).append((1, acc_w))
+                else:
+                    monitors.setdefault(new_key, []).append((0, acc_w))
+
+            program = feed_dict['program_seq'][j]
+            ops = [f['op'] for f in program]
+            if 'relate' in ops:
+                new_key = key+'/relate'
+                monitors.setdefault(new_key, []).append((int(gt == argmax), acc_w))
+                monitors.setdefault('acc/qa'+'/relate', []).append((int(gt == argmax), acc_w))
+            else:
+                new_key = key+'non_relate'
+                monitors.setdefault(new_key, []).append((int(gt == argmax), acc_w))
+                monitors.setdefault('acc/qa'+'/non_relate', []).append((int(gt == argmax), acc_w))
+
+            if question_type=='query':
+                new_key = key+'/'+ground_truth_word
+                monitors.setdefault(new_key, []).append((int(gt == argmax), acc_w))
 
             if self.training and self.add_supervision:
                 l = loss(a, gt)
@@ -240,4 +306,40 @@ class ParserV1Loss(MultitaskLossBase):
             # \Pr[p] * reward * \nabla \log \Pr[p]
             policy_loss += (-(likelihood * rewards).detach() * discounted_log_likelihood).sum()
         return {'loss/program': policy_loss}, dict()
+
+
+class AdversarialLoss(MultitaskLossBase):
+    def __init__(self):
+        super().__init__()
+        
+    def forward(self, f_sng, adversary):
+
+        total_loss = torch.tensor(0,dtype=torch.float,device=f_sng[0][1].device)
+
+        for scene in f_sng:
+            objects = scene[1]
+
+            num_objects = objects.size(0)
+            rand_pair = np.random.choice(num_objects, 2, replace=False)
+
+            first_obj_index = rand_pair[0]
+            second_obj_index = rand_pair[1]
+
+            label = 0 if first_obj_index<second_obj_index else 1
+
+            first_obj = objects[first_obj_index,:]
+            second_obj = objects[second_obj_index,:]
+
+            combined_objs = torch.unsqueeze(torch.cat((first_obj,second_obj),dim=0),dim=0)
+
+            pred = adversary(combined_objs)
+            pred = pred.mean()
+            total_loss -= self._bce_loss(pred,label)
+        return total_loss
+
+
+
+            
+
+        
 

@@ -62,8 +62,15 @@ class MultitaskLossBase(nn.Module):
         return (pred - label).abs()
 
     def _bce_loss(self, pred, label):
-        return -( jactorch.log_sigmoid(pred) * label + jactorch.log_sigmoid(-pred) * (1 - label) ).mean()
+        #pred is log probability of label 1
+        if pred.item()==0: #this only occurs when label==1
+            return -pred
+
+        complement_prob = torch.log(1-torch.exp(pred))
+        if complement_prob.item()==float("-inf"):
+            return -label*pred
+        else:
+            return -(label*pred + (1-label)*complement_prob)
 
     def _xent_loss(self, pred, label):
-        logp = F.log_softmax(pred, dim=-1)
-        return -logp[label].mean()
+        return -pred[label].mean()
